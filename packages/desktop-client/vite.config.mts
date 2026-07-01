@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import { cp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -155,10 +156,21 @@ async function stagePublicData(): Promise<void> {
 const lootCoreBackend = (): Plugin => ({
   name: 'loot-core-backend',
   configureServer(server) {
+    // Invoke vite's JS entry directly with node instead of shelling out to
+    // `yarn vite`. This avoids two Windows footguns: (1) bare spawn('yarn')
+    // only resolves .exe (not the .cmd shim), and (2) shell:true re-splits
+    // config paths that contain spaces. Passing args as an array keeps spaces
+    // intact and needs no shell or yarn-on-PATH.
+    const require = createRequire(import.meta.url);
+    const viteBin = path.join(
+      path.dirname(require.resolve('vite/package.json')),
+      'bin',
+      'vite.js',
+    );
     const child: ChildProcess = spawn(
-      'yarn',
+      process.execPath,
       [
-        'vite',
+        viteBin,
         'build',
         '--config',
         lootCoreConfig,
