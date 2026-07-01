@@ -24,6 +24,7 @@ import { useDispatch, useSelector } from '#redux';
 import { UserAccessPage } from './admin/UserAccess/UserAccessPage';
 import { UserDirectoryPage } from './admin/UserDirectory/UserDirectoryPage';
 import { BankSyncStatus } from './BankSyncStatus';
+import { BreadChaserPage } from './breadchaser/BreadChaserPage';
 import { CommandBar } from './CommandBar';
 import { EnableBankingCallback } from './EnableBankingCallback';
 import { FeatureErrorFallback } from './FeatureErrorFallback';
@@ -119,7 +120,7 @@ export function FinancesApp() {
         addNotification({
           notification: {
             type: 'message',
-            title: t('A new version of Actual is available!'),
+            title: t('A new version of Bread Chaser is available!'),
             message: t(
               'Click the button below to reload and apply the update.',
             ),
@@ -155,15 +156,15 @@ export function FinancesApp() {
           addNotification({
             notification: {
               type: 'message',
-              title: t('A new version of Actual is available!'),
+              title: t('A new version of Bread Chaser is available!'),
               message:
                 (import.meta.env.REACT_APP_IS_PIKAPODS ?? '').toLowerCase() ===
                 'true'
                   ? t(
-                      'A new version of Actual is available! Your Pikapods instance will be automatically updated in the next few days - no action needed.',
+                      'A new version of Bread Chaser is available! Your Pikapods instance will be automatically updated in the next few days - no action needed.',
                     )
                   : t(
-                      'Version {{latestVersion}} of Actual was recently released.',
+                      'Version {{latestVersion}} of Bread Chaser was recently released.',
                       { latestVersion: versionInfo.latestVersion },
                     ),
               sticky: true,
@@ -327,6 +328,7 @@ export function FinancesApp() {
                   />
                   <Route path="/tags" element={<ManageTagsPage />} />
                   <Route path="/settings" element={<Settings />} />
+                  <Route path="/bread-chaser" element={<BreadChaserPage />} />
 
                   <Route
                     path="/gocardless/link"
