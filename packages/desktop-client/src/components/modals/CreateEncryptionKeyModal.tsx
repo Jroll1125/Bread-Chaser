@@ -129,8 +129,8 @@ export function CreateEncryptionKeyModal({
                     <li>
                       <Trans>
                         If you've already downloaded your data on other devices,
-                        you will need to reset them. Actual will automatically
-                        take you through this process.
+                        you will need to reset them. Bread Chaser will
+                        automatically take you through this process.
                       </Trans>
                     </li>
                     <li>
@@ -150,7 +150,8 @@ export function CreateEncryptionKeyModal({
                     This will generate a new key for encrypting your data.{' '}
                     <strong>This requires a sync reset</strong> and all other
                     devices will have to revert to this version of your data.
-                    Actual will take you through that process on those devices.
+                    Bread Chaser will take you through that process on those
+                    devices.
                   </Trans>{' '}
                   <Link
                     variant="external"

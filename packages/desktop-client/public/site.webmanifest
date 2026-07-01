@@ -1,6 +1,6 @@
 {
-  "name": "Actual",
-  "short_name": "Actual",
+  "name": "Bread Chaser",
+  "short_name": "Bread Chaser",
   "description": "A local-first personal finance tool",
   "icons": [
     {
@@ -70,14 +70,14 @@
     {
       "src": "/screenshot_wide.png",
       "form_factor": "wide",
-      "label": "Actual Budget Homepage",
+      "label": "Bread Chaser Homepage",
       "type": "image/png",
       "sizes": "1280x720"
     },
     {
       "src": "/screenshot_narrow.png",
       "form_factor": "narrow",
-      "label": "Actual Budget Mobile Homepage",
+      "label": "Bread Chaser Mobile Homepage",
       "type": "image/png",
       "sizes": "350x600"
     }

@@ -229,8 +229,8 @@ export function GoCardlessExternalMsgModal({
           <Trans>
             By enabling bank sync, you will be granting GoCardless (a third
             party service) read-only access to your entire account's transaction
-            history. This service is not affiliated with Actual in any way. Make
-            sure you've read and understand GoCardless's{' '}
+            history. This service is not affiliated with Bread Chaser in any
+            way. Make sure you've read and understand GoCardless's{' '}
             <Link
               variant="external"
               to="https://gocardless.com/privacy/"

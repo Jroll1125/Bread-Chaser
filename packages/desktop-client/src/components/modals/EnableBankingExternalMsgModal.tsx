@@ -348,8 +348,8 @@ export function EnableBankingExternalMsgModal({
           <Trans>
             By enabling bank sync, you will be granting Enable Banking (a third
             party service) read-only access to your entire account's transaction
-            history. This service is not affiliated with Actual in any way. Make
-            sure you've read and understand Enable Banking's{' '}
+            history. This service is not affiliated with Bread Chaser in any
+            way. Make sure you've read and understand Enable Banking's{' '}
             <Link
               variant="external"
               to="https://enablebanking.com/privacy-policy/"

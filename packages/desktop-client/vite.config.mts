@@ -352,8 +352,8 @@ export default defineConfig(async ({ mode, command }) => {
             // srcDir: 'service-worker',
             // filename: 'plugin-sw.js',
             // manifest: {
-            //   name: 'Actual',
-            //   short_name: 'Actual',
+            //   name: 'Bread Chaser',
+            //   short_name: 'Bread Chaser',
             //   description: 'A local-first personal finance tool',
             //   theme_color: '#5c3dbb',
             //   background_color: '#5c3dbb',

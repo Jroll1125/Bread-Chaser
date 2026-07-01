@@ -356,7 +356,7 @@ export function Login() {
 
   return (
     <View style={{ maxWidth: 450, marginTop: -30, color: theme.pageText }}>
-      <Title text={t('Sign in to this Actual instance')} />
+      <Title text={t('Sign in to this Bread Chaser instance')} />
 
       {loginMethods?.length > 1 && (
         <Text

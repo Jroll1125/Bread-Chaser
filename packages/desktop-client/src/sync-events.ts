@@ -146,7 +146,7 @@ export function listenForSyncEvent(store: AppStore, queryClient: QueryClient) {
           // Tell the user something is wrong with the key state on
           // the server and the key needs to be recreated
           notif = {
-            title: t('Actual has updated the syncing format'),
+            title: t('Bread Chaser has updated the syncing format'),
             message: t(
               'This happens rarely (if ever again). The internal syncing format ' +
                 'has changed and you need to reset sync. This will upload data from ' +

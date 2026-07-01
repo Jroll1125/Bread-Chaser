@@ -20,9 +20,10 @@ export function Backups() {
             Backups are taken every {{ BACKUP_FREQUENCY_MINS }} minutes and
             stored in{' '}
             <strong>
-              <i>Actual's data directory</i>
+              <i>Bread Chaser's data directory</i>
             </strong>
-            . Actual retains a maximum of {{ MAX_BACKUPS }} backups at any time.
+            . Bread Chaser retains a maximum of {{ MAX_BACKUPS }} backups at any
+            time.
           </Trans>
         </p>
       </Text>

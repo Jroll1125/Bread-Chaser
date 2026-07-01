@@ -33,10 +33,10 @@ export function ImportActualModal() {
         );
       case 'not-zip-file':
         return t(
-          'This file is not valid. Please select an unencrypted archive of Actual data.',
+          'This file is not valid. Please select an unencrypted archive of Bread Chaser data.',
         );
       case 'invalid-zip-file':
-        return t('This archive is not a valid Actual export file.');
+        return t('This archive is not a valid Bread Chaser export file.');
       case 'invalid-metadata-file':
         return t('The metadata file in the given archive is corrupted.');
       default:
@@ -49,7 +49,7 @@ export function ImportActualModal() {
   async function onImport() {
     const res = await window.Actual.openFileDialog({
       properties: ['openFile'],
-      filters: [{ name: 'actual', extensions: ['zip', 'blob'] }],
+      filters: [{ name: 'Bread Chaser', extensions: ['zip', 'blob'] }],
     });
     if (res) {
       setImporting(true);
@@ -70,7 +70,7 @@ export function ImportActualModal() {
       {({ state }) => (
         <>
           <ModalHeader
-            title={t('Import from Actual export')}
+            title={t('Import from Bread Chaser export')}
             rightContent={<ModalCloseButton onPress={() => state.close()} />}
           />
           <View style={{ ...styles.smallText, lineHeight: 1.5, marginTop: 20 }}>
@@ -83,10 +83,10 @@ export function ImportActualModal() {
             <View style={{ '& > div': { lineHeight: '1.7em' } }}>
               <Paragraph>
                 <Trans>
-                  You can import data from another Actual account or instance.
-                  First export your data from a different account, and it will
-                  give you a compressed file. This file is a simple zip file
-                  that contains the <code>db.sqlite</code> and{' '}
+                  You can import data from another Bread Chaser account or
+                  instance. First export your data from a different account, and
+                  it will give you a compressed file. This file is a simple zip
+                  file that contains the <code>db.sqlite</code> and{' '}
                   <code>metadata.json</code> files.
                 </Trans>
               </Paragraph>

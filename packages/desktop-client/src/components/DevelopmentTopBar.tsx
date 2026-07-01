@@ -18,7 +18,7 @@ export function DevelopmentTopBar() {
         flexShrink: 0,
       }}
     >
-      <View>This is a demo build of Actual.</View>
+      <View>This is a demo build of Bread Chaser.</View>
       <View>
         <Link
           variant="external"

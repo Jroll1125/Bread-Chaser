@@ -294,7 +294,10 @@ async function startSyncServer() {
       syncServerProcess.on('message', msg => {
         switch (msg.type) {
           case 'server-started':
-            logMessage('info', 'Sync-Server: Actual Sync Server has started!');
+            logMessage(
+              'info',
+              'Sync-Server: Bread Chaser sync server has started!',
+            );
             syncServerStarted = true;
             resolve();
             break;
@@ -343,7 +346,7 @@ async function createWindow() {
     y: windowState.y,
     width: windowState.width,
     height: windowState.height,
-    title: 'Actual',
+    title: 'Bread Chaser',
     webPreferences: {
       nodeIntegration: false,
       nodeIntegrationInWorker: false,
@@ -445,7 +448,7 @@ function isExternalUrl(url: string) {
   return !url.includes('localhost:') && !url.includes('app://');
 }
 
-app.setAppUserModelId('com.actualbudget.actual');
+app.setAppUserModelId('com.rockrunindustries.breadchaser');
 
 app.on('ready', async () => {
   // Install an `app://` protocol that always returns the base HTML

@@ -1,8 +1,8 @@
 {
   "name": "desktop-electron",
   "version": "26.6.0",
-  "description": "A simple and powerful personal finance system",
-  "author": "Actual",
+  "description": "Bread Chaser — a personal finance app by Rock Run Industries",
+  "author": "Rock Run Industries",
   "main": "build/desktop-electron/index.js",
   "scripts": {
     "clean": "rm -rf dist",
@@ -32,7 +32,7 @@
     "typescript-strict-plugin": "^2.4.4"
   },
   "build": {
-    "appId": "com.actualbudget.actual",
+    "appId": "com.rockrunindustries.breadchaser",
     "files": [
       "build",
       "!node_modules/@actual-app/web",
@@ -102,14 +102,6 @@
     "win": {
       "target": [
         {
-          "target": "appx",
-          "arch": [
-            "ia32",
-            "x64",
-            "arm64"
-          ]
-        },
-        {
           "target": "nsis",
           "arch": [
             "ia32",
@@ -119,15 +111,9 @@
         }
       ],
       "icon": "icons/icon.png",
-      "artifactName": "${productName}-windows-${arch}.${ext}"
-    },
-    "appx": {
-      "identityName": "actualbudget.org.ActualBudget",
-      "publisherDisplayName": "actualbudget.org",
-      "displayName": "Actual Budget",
-      "publisher": "CN=19454997-90E1-4473-879D-96D6A77A6056"
+      "artifactName": "BreadChaser-windows-${arch}.${ext}"
     },
     "npmRebuild": false
   },
-  "productName": "Actual"
+  "productName": "Bread Chaser"
 }

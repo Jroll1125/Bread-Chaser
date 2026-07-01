@@ -57,7 +57,7 @@ function FileLocationSettings() {
     >
       <Text>
         <Trans>
-          <strong>Actual's data directory</strong>{' '}
+          <strong>Bread Chaser's data directory</strong>{' '}
           <small style={{ marginLeft: '0.5rem' }}>
             <i>where your files are stored</i>
           </small>

@@ -253,9 +253,9 @@ export const BySaveAutomation = ({
                       <Trans>
                         Without this, spending before the target month leaves a
                         gap that the next month's contribution has to make up.
-                        Turn this on to tell Actual spending is expected from a
-                        chosen month onwards, so it doesn't budget more to
-                        recover the shortfall.
+                        Turn this on to tell Bread Chaser spending is expected
+                        from a chosen month onwards, so it doesn't budget more
+                        to recover the shortfall.
                       </Trans>
                       <View style={{ marginTop: 6, fontStyle: 'italic' }}>
                         <Trans>

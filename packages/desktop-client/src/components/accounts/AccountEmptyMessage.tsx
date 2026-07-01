@@ -31,9 +31,9 @@ export function AccountEmptyMessage({ onAdd }: AccountEmptyMessageProps) {
       >
         <Text style={{ textAlign: 'center', lineHeight: '1.4em' }}>
           <Trans>
-            For Actual to be useful, you need to <strong>add an account</strong>
-            . You can link an account to automatically download transactions, or
-            manage it locally yourself.
+            For Bread Chaser to be useful, you need to{' '}
+            <strong>add an account</strong>. You can link an account to
+            automatically download transactions, or manage it locally yourself.
           </Trans>
         </Text>
 

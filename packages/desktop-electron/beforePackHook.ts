@@ -1,5 +1,4 @@
 import { rebuild } from '@electron/rebuild';
-import copyFiles from 'copyfiles';
 import { Arch } from 'electron-builder';
 import type { AfterPackContext } from 'electron-builder';
 
@@ -28,16 +27,6 @@ const beforePackHook = async (context: AfterPackContext) => {
     });
 
     console.info(`Rebuilt better-sqlite3 and bcrypt with ${arch}!`);
-
-    if (context.packager.platform.name === 'windows') {
-      console.info(`Windows build - copying appx files...`);
-
-      await new Promise(resolve =>
-        copyFiles(['./appx/**/*', './build'], { error: true }, resolve),
-      );
-
-      console.info(`Copied appx files!`);
-    }
   } catch (err) {
     console.error('beforePackHook:', err);
     process.exit(); // End the process - unsuccessful build

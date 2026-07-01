@@ -18,6 +18,7 @@ module.exports = {
   createOnce(context) {
     const whitelist = [
       'Actual',
+      'Bread Chaser',
       'GoCardless',
       'SimpleFIN',
       'Pluggy.ai',

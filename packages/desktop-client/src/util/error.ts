@@ -61,7 +61,7 @@ function isDatabaseSchemaMismatch(meta?: unknown): boolean {
 
 function getSchemaMismatchError() {
   return t(
-    'This budget could not be loaded because it uses a newer database schema than this version of Actual supports. Make sure you are using the latest version, then try again.',
+    'This budget could not be loaded because it uses a newer database schema than this version of Bread Chaser supports. Make sure you are using the latest version, then try again.',
   );
 }
 
@@ -129,7 +129,7 @@ export function getTestKeyError({ reason }: ErrorWithMeta) {
       );
     case 'old-key-style':
       return t(
-        'This file is encrypted with an old unsupported key style. Recreate the key on a device where the file is available, or use an older version of Actual to download it.',
+        'This file is encrypted with an old unsupported key style. Recreate the key on a device where the file is available, or use an older version of Bread Chaser to download it.',
       );
     case 'decrypt-failure':
       return t('Unable to decrypt file with this password. Please try again.');
