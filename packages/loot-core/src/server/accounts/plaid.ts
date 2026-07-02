@@ -96,6 +96,58 @@ async function getClientSecret(
   return secureStore.getSecret(CLIENT_SECRET_KEY);
 }
 
+/** Merges a patch into plaid.json, always stripping the transient secret field. */
+async function writeConfigFile(
+  patch: Partial<PlaidConfigFile>,
+): Promise<void> {
+  const existing = (await readConfigFile()) ?? {};
+  const { secret: _drop, ...rest } = existing;
+  await lootFs.writeFile(
+    getConfigPath(),
+    JSON.stringify({ ...rest, ...patch }, null, 2),
+  );
+}
+
+/**
+ * In-app setup: store the Plaid client id, environment, and secret without the
+ * user hand-editing plaid.json. clientId + env land in the plain config file;
+ * the secret goes straight into the OS-encrypted secure store. The secret is
+ * optional when one is already stored, so the env or client id can be changed
+ * on their own.
+ */
+export async function configurePlaid({
+  clientId,
+  secret,
+  env,
+}: {
+  clientId: string;
+  secret?: string;
+  env: PlaidEnv;
+}): Promise<void> {
+  if (!(await secureStore.isAvailable())) {
+    throw new Error(
+      'Secure storage is unavailable; Plaid setup needs the desktop app.',
+    );
+  }
+  const trimmedId = clientId.trim();
+  if (!trimmedId) {
+    throw new Error('The Plaid client ID is required.');
+  }
+  if (env !== 'sandbox' && env !== 'production') {
+    throw new Error('The Plaid environment must be sandbox or production.');
+  }
+  const trimmedSecret = secret?.trim() ?? '';
+  const existingSecret = await secureStore.getSecret(CLIENT_SECRET_KEY);
+  if (!trimmedSecret && !existingSecret) {
+    throw new Error('The Plaid secret is required.');
+  }
+
+  await writeConfigFile({ clientId: trimmedId, env });
+  if (trimmedSecret) {
+    await secureStore.setSecret(CLIENT_SECRET_KEY, trimmedSecret);
+  }
+}
+
 async function getPlaidConfig(): Promise<PlaidConfig | null> {
   const fileConfig = await readConfigFile();
   const secret = await getClientSecret(fileConfig);
@@ -111,14 +163,21 @@ async function getPlaidConfig(): Promise<PlaidConfig | null> {
 export async function getPlaidStatus(): Promise<PlaidStatus> {
   const available = await secureStore.isAvailable();
   if (!available) {
-    return { available: false, configured: false, env: null };
+    return { available: false, configured: false, env: null, clientId: null };
   }
   const config = await getPlaidConfig();
-  const fileConfig = config ? null : await readConfigFile();
+  const fileConfig = await readConfigFile();
+  const rawEnv = config?.env ?? fileConfig?.env;
   return {
     available,
     configured: config != null,
-    env: config?.env ?? (fileConfig?.env === 'production' ? 'production' : null),
+    env:
+      rawEnv === 'production'
+        ? 'production'
+        : rawEnv === 'sandbox'
+          ? 'sandbox'
+          : null,
+    clientId: fileConfig?.clientId ?? null,
   };
 }
 

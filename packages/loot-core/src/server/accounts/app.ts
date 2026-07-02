@@ -29,6 +29,7 @@ import type {
   CategoryEntity,
   GoCardlessToken,
   ImportTransactionEntity,
+  PlaidEnv,
   PlaidItem,
   SyncServerAkahuAccount,
   SyncServerEnableBankingAccount,
@@ -61,6 +62,7 @@ export type AccountHandlers = {
   'gocardless-accounts-link': typeof linkGoCardlessAccount;
   'simplefin-accounts-link': typeof linkSimpleFinAccount;
   'plaid-status': typeof plaidStatus;
+  'plaid-configure': typeof plaidConfigure;
   'plaid-create-link-token': typeof plaidCreateLinkToken;
   'plaid-poll-link': typeof pollPlaidLink;
   'plaid-sandbox-link': typeof plaidSandboxLink;
@@ -329,6 +331,19 @@ async function linkSimpleFinAccount({
 
 async function plaidStatus() {
   return plaid.getPlaidStatus();
+}
+
+async function plaidConfigure({
+  clientId,
+  secret,
+  env,
+}: {
+  clientId: string;
+  secret?: string;
+  env: PlaidEnv;
+}) {
+  await plaid.configurePlaid({ clientId, secret, env });
+  return 'ok' as const;
 }
 
 async function plaidCreateLinkToken() {
@@ -1935,6 +1950,7 @@ app.method('account-properties', getAccountProperties);
 app.method('gocardless-accounts-link', linkGoCardlessAccount);
 app.method('simplefin-accounts-link', linkSimpleFinAccount);
 app.method('plaid-status', plaidStatus);
+app.method('plaid-configure', plaidConfigure);
 app.method('plaid-create-link-token', plaidCreateLinkToken);
 app.method('plaid-poll-link', pollPlaidLink);
 app.method('plaid-sandbox-link', plaidSandboxLink);

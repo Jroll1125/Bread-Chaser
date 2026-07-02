@@ -74,6 +74,7 @@ import { OutOfSyncMigrationsModal } from './modals/OutOfSyncMigrationsModal';
 import { PasswordEnableModal } from './modals/PasswordEnableModal';
 import { PayeeAutocompleteModal } from './modals/PayeeAutocompleteModal';
 import { PlaidLinkModal } from './modals/PlaidLinkModal';
+import { PlaidSetupModal } from './modals/PlaidSetupModal';
 import { PluggyAiInitialiseModal } from './modals/PluggyAiInitialiseModal';
 import { ScheduledTransactionMenuModal } from './modals/ScheduledTransactionMenuModal';
 import { SelectLinkedAccountsModal } from './modals/SelectLinkedAccountsModal';
@@ -191,6 +192,9 @@ export function Modals() {
 
         case 'plaid-link':
           return <PlaidLinkModal key={key} {...modal.options} />;
+
+        case 'plaid-setup':
+          return <PlaidSetupModal key={key} {...modal.options} />;
 
         case 'email-receipts-setup':
           return <EmailReceiptsSetupModal key={key} {...modal.options} />;

@@ -27,6 +27,9 @@ export type PlaidStatus = {
   // client id + secret are set up
   configured: boolean;
   env: PlaidEnv | null;
+  // The public Plaid client id (never the secret), for prefilling the in-app
+  // setup form. Null when not set.
+  clientId: string | null;
 };
 
 export type PlaidHostedLink = {

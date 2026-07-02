@@ -49,11 +49,13 @@ export function BankSyncCard() {
   const [isSandboxLinking, setIsSandboxLinking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refreshStatus = () => {
     send('plaid-status')
       .then(setStatus)
       .catch(() => setStatus(null));
-  }, []);
+  };
+
+  useEffect(refreshStatus, []);
 
   const plaidAccounts = (accountsQuery.data ?? []).filter(
     account => account.account_sync_source === 'plaid' && !account.closed,
@@ -67,6 +69,21 @@ export function BankSyncCard() {
           options: {
             onSuccess: () => {
               void accountsQuery.refetch();
+            },
+          },
+        },
+      }),
+    );
+  };
+
+  const onConfigure = () => {
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'plaid-setup',
+          options: {
+            onSuccess: () => {
+              refreshStatus();
             },
           },
         },
@@ -176,28 +193,39 @@ export function BankSyncCard() {
       )}
 
       <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-        <Button variant="primary" onPress={onConnect}>
-          <Trans>Connect a bank</Trans>
-        </Button>
-        {plaidAccounts.length > 0 && (
-          <ButtonWithLoading
-            isLoading={isSyncing}
-            onPress={() => {
-              void onSyncNow();
-            }}
-          >
-            <Trans>Sync now</Trans>
-          </ButtonWithLoading>
-        )}
-        {status?.configured && status.env === 'sandbox' && (
-          <ButtonWithLoading
-            isLoading={isSandboxLinking}
-            onPress={() => {
-              void onSandboxConnect();
-            }}
-          >
-            <Trans>Connect sandbox bank</Trans>
-          </ButtonWithLoading>
+        {status?.configured ? (
+          <>
+            <Button variant="primary" onPress={onConnect}>
+              <Trans>Connect a bank</Trans>
+            </Button>
+            {plaidAccounts.length > 0 && (
+              <ButtonWithLoading
+                isLoading={isSyncing}
+                onPress={() => {
+                  void onSyncNow();
+                }}
+              >
+                <Trans>Sync now</Trans>
+              </ButtonWithLoading>
+            )}
+            {status.env === 'sandbox' && (
+              <ButtonWithLoading
+                isLoading={isSandboxLinking}
+                onPress={() => {
+                  void onSandboxConnect();
+                }}
+              >
+                <Trans>Connect sandbox bank</Trans>
+              </ButtonWithLoading>
+            )}
+            <Button onPress={onConfigure}>
+              <Trans>Plaid settings</Trans>
+            </Button>
+          </>
+        ) : (
+          <Button variant="primary" onPress={onConfigure}>
+            <Trans>Set up Plaid</Trans>
+          </Button>
         )}
       </View>
     </View>

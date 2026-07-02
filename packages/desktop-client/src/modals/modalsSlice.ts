@@ -124,6 +124,12 @@ export type Modal =
       };
     }
   | {
+      name: 'plaid-setup';
+      options: {
+        onSuccess: () => void;
+      };
+    }
+  | {
       name: 'email-receipts-setup';
       options: {
         onSuccess: () => void;
