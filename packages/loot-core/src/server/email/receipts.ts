@@ -55,6 +55,11 @@ const DEFAULT_LLM_ENDPOINT = 'http://localhost:11434';
 const DEFAULT_LLM_MODEL = 'qwen2.5:7b';
 const DEFAULT_HISTORY_DAYS = 720;
 const DEFAULT_MAX_MESSAGES = 2000;
+// When incrementalSync is on, each sync queries from the last scan's start
+// time minus this margin (rather than the full historyDays window). The
+// overlap re-lists a few already-seen messages (harmless — they dedupe on
+// Gmail id) so nothing that arrived around the previous sync is missed.
+const INCREMENTAL_OVERLAP_DAYS = 3;
 
 type EmailReceiptsConfigFile = {
   clientId?: string;
@@ -73,6 +78,11 @@ type EmailReceiptsConfigFile = {
   // the Email Receipts card; when on, the narrow slam-dunk gate in
   // syncEmailReceipts still applies on top of this.
   autoApply?: boolean;
+  // When true, a sync only pulls mail since the previous successful scan
+  // (Gmail `after:` from the stored watermark) instead of re-listing the whole
+  // historyDays window every time. Leave off for the initial backfill, then
+  // turn on so routine syncs stay fast. Ignored if a custom gmailQuery is set.
+  incrementalSync?: boolean;
 };
 
 type EmailReceiptsConfig = {
@@ -86,6 +96,7 @@ type EmailReceiptsConfig = {
   historyDays: number;
   maxMessagesPerSync: number;
   autoApply: boolean;
+  incrementalSync: boolean;
 };
 
 function getConfigPath(): string {
@@ -197,6 +208,7 @@ async function getConfig(): Promise<EmailReceiptsConfig | null> {
     historyDays: fileConfig.historyDays ?? DEFAULT_HISTORY_DAYS,
     maxMessagesPerSync: fileConfig.maxMessagesPerSync ?? DEFAULT_MAX_MESSAGES,
     autoApply: fileConfig.autoApply ?? false,
+    incrementalSync: fileConfig.incrementalSync ?? false,
   };
 }
 
@@ -468,9 +480,18 @@ function headerDateToDay(value: string): string | null {
 
 const BODY_CAP = 64_000;
 
-function defaultGmailQuery(historyDays: number): string {
+export function buildGmailQuery(
+  historyDays: number,
+  sinceEpochSec: number | null,
+): string {
+  // Gmail `after:` takes unix seconds. Fall back to the rolling window on the
+  // first incremental run (no watermark yet) or when incrementalSync is off.
+  const timeClause =
+    sinceEpochSec != null
+      ? `after:${sinceEpochSec}`
+      : `newer_than:${historyDays}d`;
   return (
-    `newer_than:${historyDays}d ` +
+    `${timeClause} ` +
     '(subject:(receipt OR order OR payment OR purchase OR invoice OR refund) ' +
     'OR from:(doordash OR venmo OR google OR 1aauto OR iracing OR carfax ' +
     'OR enterprise OR amazon OR paypal OR apple))'
@@ -515,8 +536,22 @@ export async function syncEmailReceipts(): Promise<EmailReceiptsSyncResult> {
     llmUnavailable: false,
   };
 
+  // Watermark for incremental syncs: record when THIS scan began, and (when
+  // incrementalSync is on and we have a prior watermark) query forward from it
+  // instead of re-listing the whole historyDays window.
+  const scanStartedAt = new Date().toISOString();
+  let sinceEpochSec: number | null = null;
+  if (config.incrementalSync && !config.gmailQuery) {
+    const lastScanAt = await getMeta('last_scan_at');
+    if (lastScanAt) {
+      const overlapMs = INCREMENTAL_OVERLAP_DAYS * 24 * 60 * 60 * 1000;
+      sinceEpochSec = Math.floor((Date.parse(lastScanAt) - overlapMs) / 1000);
+    }
+  }
+
   // 1) List candidate messages.
-  const query = config.gmailQuery ?? defaultGmailQuery(config.historyDays);
+  const query =
+    config.gmailQuery ?? buildGmailQuery(config.historyDays, sinceEpochSec);
   const ids: string[] = [];
   let pageToken: string | null = null;
   while (ids.length < config.maxMessagesPerSync) {
@@ -702,8 +737,12 @@ export async function syncEmailReceipts(): Promise<EmailReceiptsSyncResult> {
   }
 
   await setMeta('last_sync', new Date().toISOString());
+  // Advance the incremental watermark only on a completed sync; a mid-sync
+  // throw leaves it untouched so the next run re-covers the same span.
+  await setMeta('last_scan_at', scanStartedAt);
   logger.log(
-    `[email-receipts] sync: ${result.scanned} scanned, ` +
+    `[email-receipts] sync (${sinceEpochSec != null ? 'incremental' : 'full window'}): ` +
+      `${result.scanned} scanned, ` +
       `${result.extracted} extracted, ${result.autoApplied} auto-applied, ` +
       `${result.queuedForReview} queued, ${result.unmatched} unmatched` +
       (result.llmUnavailable ? ' (local model offline)' : ''),
