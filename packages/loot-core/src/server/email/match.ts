@@ -2,6 +2,10 @@ import * as dateFns from 'date-fns';
 
 import { logger } from '#platform/server/log';
 import { aqlQuery } from '#server/aql';
+import {
+  addAttachmentBuffer,
+  hasAttachmentForSource,
+} from '#server/attachments/app';
 import * as db from '#server/db';
 import { batchUpdateTransactions } from '#server/transactions';
 import { q } from '#shared/query';
@@ -436,6 +440,95 @@ export async function applyProposal(
       `"${receipt.merchant}" to transaction ${trans.id}` +
       (makeSplit ? ` as a ${receipt.line_items.length}-item split` : ''),
   );
+
+  await attachReceiptEmail(proposal.message_id, trans.id);
+}
+
+type EmailMessageRow = {
+  subject: string | null;
+  from_addr: string | null;
+  email_date: string | null;
+  body: string | null;
+};
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function renderReceiptEmailHtml(msg: EmailMessageRow): string {
+  const body = msg.body ?? '';
+  // The pipeline stores whichever of text/html or text/plain it decoded;
+  // wrap plain text so it stays readable in a browser.
+  const looksLikeHtml = /<\s*(html|body|div|table|p|br|span|td)\b/i.test(body);
+  const bodyHtml = looksLikeHtml
+    ? body
+    : `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(body)}</pre>`;
+
+  const headerRows = [
+    ['Subject', msg.subject],
+    ['From', msg.from_addr],
+    ['Date', msg.email_date],
+  ]
+    .filter(([, value]) => value)
+    .map(
+      ([label, value]) =>
+        `<div><strong>${label}:</strong> ${escapeHtml(String(value))}</div>`,
+    )
+    .join('\n');
+
+  return [
+    '<!doctype html>',
+    '<html><head><meta charset="utf-8"></head><body>',
+    `<div style="border-bottom: 1px solid #ccc; padding-bottom: 8px; margin-bottom: 12px; font-family: sans-serif; font-size: 13px;">${headerRows}</div>`,
+    bodyHtml,
+    '</body></html>',
+  ].join('\n');
+}
+
+/**
+ * Attach the source receipt email (rendered to .html) to the matched
+ * transaction. Idempotent (keyed on the Gmail message id) and deliberately
+ * non-fatal: the ledger apply has already succeeded, so a sync-server
+ * hiccup here must not fail the whole apply.
+ */
+async function attachReceiptEmail(
+  messageId: string,
+  transactionId: string,
+): Promise<void> {
+  try {
+    if (await hasAttachmentForSource(transactionId, messageId)) {
+      return;
+    }
+    const database = await getEmailDb();
+    const msg = first<EmailMessageRow>(
+      database,
+      `SELECT subject, from_addr, email_date, body
+         FROM email_messages WHERE message_id = ?`,
+      [messageId],
+    );
+    if (!msg) {
+      return;
+    }
+    const datePart = (msg.email_date ?? '').slice(0, 10);
+    const fileName = `receipt-email${datePart ? '-' + datePart : ''}.html`;
+    await addAttachmentBuffer({
+      transactionId,
+      data: Buffer.from(renderReceiptEmailHtml(msg), 'utf8'),
+      fileName,
+      contentType: 'text/html',
+      source: 'email',
+      sourceKey: messageId,
+    });
+    logger.log(
+      `[email-receipts] attached source email to transaction ${transactionId}`,
+    );
+  } catch (err) {
+    logger.warn('[email-receipts] could not attach the source email', err);
+  }
 }
 
 /**
