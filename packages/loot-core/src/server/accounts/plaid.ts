@@ -217,6 +217,13 @@ async function requireAccessToken(itemId: string): Promise<string> {
   return token;
 }
 
+// Plaid fixes an Item's available transaction history at creation time (the
+// initial /transactions/sync pull), not per-sync - days_requested here only
+// affects links created from this point on. An already-linked Item can't be
+// backfilled further; getting more history for an existing bank requires
+// unlinking and relinking it (which mints a new Item).
+const PRODUCTION_DAYS_REQUESTED = 730; // ~2 years; actual depth is bank-dependent
+
 /**
  * Create a Plaid Hosted Link session. The returned URL is opened in the
  * system browser (Hosted Link handles OAuth institutions like Chase, which
@@ -233,7 +240,7 @@ export async function createHostedLink(): Promise<PlaidHostedLink> {
     products: ['transactions'],
     country_codes: ['US'],
     language: 'en',
-    transactions: { days_requested: 90 },
+    transactions: { days_requested: PRODUCTION_DAYS_REQUESTED },
     hosted_link: {},
   });
   return { linkToken: res.link_token, url: res.hosted_link_url };
@@ -296,15 +303,46 @@ export async function createSandboxItem(
   return exchangePublicToken(pt.public_token, `Plaid Sandbox (${institutionId})`);
 }
 
-export async function getItemAccounts(
+// /accounts/get and the item's historical-backfill readiness (below) are
+// per-ITEM, but loot-core's sync dispatch calls syncAccount once per
+// account (#server/accounts/sync.ts). Without caching, an item with N
+// accounts makes N redundant /accounts/get calls - and, worse, N
+// independent history-ready polling loops - on every "sync all" pass. Plaid
+// rate-limits /accounts/get to 15/min per Item in Production, which a
+// 5-account credit union item blows through immediately without this.
+// Process-lifetime cache is fine here: it only needs to survive one sync
+// batch, and a restart just costs one extra check cycle per item.
+const ACCOUNTS_CACHE_TTL_MS = 45_000;
+const accountsCache = new Map<
+  string,
+  { accounts: PlaidApiAccount[]; expires: number }
+>();
+
+async function getItemAccountsRaw(
   itemId: string,
-): Promise<PlaidAccount[]> {
-  const token = await requireAccessToken(itemId);
+  token: string,
+): Promise<PlaidApiAccount[]> {
+  const cached = accountsCache.get(itemId);
+  if (cached && cached.expires > Date.now()) {
+    return cached.accounts;
+  }
   const res = await plaidFetch<{ accounts: PlaidApiAccount[] }>(
     '/accounts/get',
     { access_token: token },
   );
-  return res.accounts.map(mapAccount);
+  accountsCache.set(itemId, {
+    accounts: res.accounts,
+    expires: Date.now() + ACCOUNTS_CACHE_TTL_MS,
+  });
+  return res.accounts;
+}
+
+export async function getItemAccounts(
+  itemId: string,
+): Promise<PlaidAccount[]> {
+  const token = await requireAccessToken(itemId);
+  const accounts = await getItemAccountsRaw(itemId, token);
+  return accounts.map(mapAccount);
 }
 
 /** Credit/loan balances are amounts OWED, so they're negative in Actual. */
@@ -337,6 +375,16 @@ type TransactionsSyncResponse = {
   transactions_update_status?: string;
 };
 
+// A wider transactions.days_requested window (up to 730 days) takes Plaid
+// longer to backfill from the institution than the old 90-day default did -
+// long enough that the previous 90s timeout routinely gave up before
+// HISTORICAL_UPDATE_COMPLETE, silently downgrading a 2-year request to
+// whatever partial snapshot existed at the 90s mark. A coarser poll interval
+// keeps this well under Plaid's per-item rate limit even at a longer
+// deadline (5min / 8s ≈ 8 calls/min, vs. a 15/min cap).
+const HISTORY_READY_TIMEOUT_MS = 5 * 60_000;
+const HISTORY_READY_POLL_INTERVAL_MS = 8_000;
+
 /**
  * After an item is first linked, Plaid prepares its transaction history
  * asynchronously. Importing a partial window would poison the starting
@@ -344,7 +392,7 @@ type TransactionsSyncResponse = {
  * transaction), so the first sync waits for the full history window.
  */
 async function waitForHistoryReady(token: string): Promise<void> {
-  const deadline = Date.now() + 90_000;
+  const deadline = Date.now() + HISTORY_READY_TIMEOUT_MS;
   while (true) {
     const probe = await plaidFetch<TransactionsSyncResponse>(
       '/transactions/sync',
@@ -355,13 +403,33 @@ async function waitForHistoryReady(token: string): Promise<void> {
     }
     if (Date.now() > deadline) {
       logger.warn(
-        `Plaid history not ready after 90s (status: ${probe.transactions_update_status}); ` +
-          'importing what exists - the starting balance may need a manual fix',
+        `Plaid history not ready after ${HISTORY_READY_TIMEOUT_MS / 1000}s ` +
+          `(status: ${probe.transactions_update_status}); importing what ` +
+          'exists - the starting balance may need a manual fix',
       );
       return;
     }
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve =>
+      setTimeout(resolve, HISTORY_READY_POLL_INTERVAL_MS),
+    );
   }
+}
+
+// Historical-backfill readiness is also an item-level fact, not a per-account
+// one - dedupe the wait itself so N accounts on one item share a single
+// polling loop instead of running N in parallel/succession.
+const historyReadyPromises = new Map<string, Promise<void>>();
+
+function waitForHistoryReadyOnce(
+  itemId: string,
+  token: string,
+): Promise<void> {
+  let promise = historyReadyPromises.get(itemId);
+  if (!promise) {
+    promise = waitForHistoryReady(token);
+    historyReadyPromises.set(itemId, promise);
+  }
+  return promise;
 }
 
 // The shape normalizeBankSyncTransactions consumes (loot-core's providers all
@@ -427,11 +495,8 @@ export async function downloadPlaidTransactions(
 
   logger.log('Pulling transactions from Plaid');
 
-  const accountsRes = await plaidFetch<{ accounts: PlaidApiAccount[] }>(
-    '/accounts/get',
-    { access_token: token },
-  );
-  const account = accountsRes.accounts.find(a => a.account_id === acctId);
+  const accounts = await getItemAccountsRaw(itemId, token);
+  const account = accounts.find(a => a.account_id === acctId);
   if (!account) {
     throw new BankSyncError(
       `Plaid item ${itemId} no longer reports account ${acctId}`,
@@ -443,7 +508,7 @@ export async function downloadPlaidTransactions(
   let cursor =
     (await secureStore.getSecret(cursorKey(itemId, acctId))) ?? undefined;
   if (cursor === undefined) {
-    await waitForHistoryReady(token);
+    await waitForHistoryReadyOnce(itemId, token);
   }
   // Dedupe across pages and across added/modified by transaction id; a later
   // occurrence is a Plaid correction and wins.
