@@ -2,6 +2,7 @@ import * as db from '#server/db';
 import { loadMappings } from '#server/db/mappings';
 
 import { downloadPlaidTransactions, savePlaidCursor } from './plaid';
+import type { PlaidDownloadResult } from './plaid';
 import { syncAccount } from './sync';
 
 vi.mock('./plaid', () => ({
@@ -25,9 +26,9 @@ async function setupPlaidAccount() {
 }
 
 function makeDownload(
-  transactions: Array<Record<string, unknown>>,
+  transactions: PlaidDownloadResult['download']['transactions'],
   nextCursor: string,
-) {
+): PlaidDownloadResult {
   return {
     download: {
       transactions,

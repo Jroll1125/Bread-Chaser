@@ -17,6 +17,7 @@ import { useAkahuStatus } from '#hooks/useAkahuStatus';
 import { useEnableBankingStatus } from '#hooks/useEnableBankingStatus';
 import { useFeatureFlag } from '#hooks/useFeatureFlag';
 import { useGoCardlessStatus } from '#hooks/useGoCardlessStatus';
+import { usePlaidStatus } from '#hooks/usePlaidStatus';
 import { usePluggyAiStatus } from '#hooks/usePluggyAiStatus';
 import { useSimpleFinStatus } from '#hooks/useSimpleFinStatus';
 import { useSyncServerStatus } from '#hooks/useSyncServerStatus';
@@ -58,6 +59,9 @@ export type BuiltInBankSyncProviderState = {
   description: string;
   isConfigured: boolean;
   canConfigure: boolean;
+  // True for providers that route through a sync server; Plaid runs natively
+  // in the desktop app and works without one.
+  requiresServer: boolean;
   isLoading?: boolean;
   onConfigure: ProviderAction;
   onLink: ProviderAction;
@@ -118,6 +122,7 @@ export function useBuiltInBankSyncProviders({
 
   const enableBankingEnabled = useFeatureFlag('enableBanking');
   const akahuEnabled = useFeatureFlag('akahuBankSync');
+  const { plaidStatus } = usePlaidStatus();
   const { configuredGoCardless } = useGoCardlessStatus();
   const { configuredSimpleFin } = useSimpleFinStatus();
   const { configuredPluggyAi } = usePluggyAiStatus();
@@ -598,14 +603,83 @@ export function useBuiltInBankSyncProviders({
     pluggyai: Boolean(isPluggyAiSetupComplete),
     enableBanking: Boolean(isEnableBankingSetupComplete),
     akahu: Boolean(isAkahuSetupComplete),
-    // Plaid is native to the Electron build and managed from the Bread
-    // Chaser hub, not the sync-server provider settings.
-    plaid: false,
+    plaid: Boolean(plaidStatus?.available && plaidStatus?.configured),
   } satisfies Record<BankSyncProviders, boolean>;
 
+  const onPlaidLink = useCallback(() => {
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'plaid-link',
+          options: {
+            onSuccess: createdAccountIds => {
+              dispatch(
+                addNotification({
+                  notification: {
+                    type: 'message',
+                    message: t(
+                      'Connected {{count}} account(s) via Plaid. Their transactions are importing now.',
+                      { count: createdAccountIds.length },
+                    ),
+                  },
+                }),
+              );
+            },
+          },
+        },
+      }),
+    );
+  }, [dispatch, t]);
+
+  // Plaid credentials live in plaid.json in the app data directory (the
+  // secret is moved into OS-encrypted storage on first read) - there is no
+  // in-app secrets form yet, so Set up / Reset explain the file instead.
+  const onPlaidConfigure = useCallback(() => {
+    dispatch(
+      addNotification({
+        notification: {
+          type: 'message',
+          title: t('Plaid setup'),
+          message: t(
+            'Create plaid.json in the app data directory with your Plaid clientId, env ("sandbox" or "production"), and secret, then restart the app. The secret is moved into encrypted storage automatically.',
+          ),
+          timeout: 15000,
+        },
+      }),
+    );
+  }, [dispatch, t]);
+
+  const onPlaidReset = useCallback(() => {
+    dispatch(
+      addNotification({
+        notification: {
+          type: 'message',
+          title: t('Plaid credentials'),
+          message: t(
+            'To change Plaid credentials, add the new secret to plaid.json in the app data directory and restart the app.',
+          ),
+          timeout: 15000,
+        },
+      }),
+    );
+  }, [dispatch, t]);
+
   const providers = useMemo<BuiltInBankSyncProviderState[]>(() => {
-    const baseProviders: BuiltInBankSyncProviderState[] =
-      BUILT_IN_BANK_SYNC_PROVIDERS.map(providerId => {
+    const baseProviders: BuiltInBankSyncProviderState[] = [
+      {
+        id: 'plaid',
+        displayName: 'Plaid',
+        description: t(
+          'Link a US bank account natively in the desktop app. Sign-in happens in your browser; no sync server needed.',
+        ),
+        isConfigured: configuredProviders.plaid,
+        canConfigure: true,
+        requiresServer: false,
+        onConfigure: onPlaidConfigure,
+        onLink: onPlaidLink,
+        onReset: onPlaidReset,
+      },
+      ...BUILT_IN_BANK_SYNC_PROVIDERS.map(providerId => {
         if (providerId === 'goCardless') {
           return {
             id: providerId,
@@ -615,6 +689,7 @@ export function useBuiltInBankSyncProviders({
             ),
             isConfigured: configuredProviders.goCardless,
             canConfigure: canConfigureProviders,
+            requiresServer: true,
             onConfigure: onGoCardlessInit,
             onLink: onConnectGoCardless,
             onReset: onGoCardlessReset,
@@ -630,6 +705,7 @@ export function useBuiltInBankSyncProviders({
             ),
             isConfigured: configuredProviders.simpleFin,
             canConfigure: canConfigureProviders,
+            requiresServer: true,
             isLoading: loadingSimpleFinAccounts,
             onConfigure: onSimpleFinInit,
             onLink: onConnectSimpleFin,
@@ -645,11 +721,13 @@ export function useBuiltInBankSyncProviders({
           ),
           isConfigured: configuredProviders.pluggyai,
           canConfigure: canConfigureProviders,
+          requiresServer: true,
           onConfigure: onPluggyAiInit,
           onLink: onConnectPluggyAi,
           onReset: onPluggyAiReset,
         };
-      });
+      }),
+    ];
 
     if (akahuEnabled) {
       baseProviders.push({
@@ -660,6 +738,7 @@ export function useBuiltInBankSyncProviders({
         ),
         isConfigured: configuredProviders.akahu,
         canConfigure: canConfigureProviders,
+        requiresServer: true,
         isLoading: loadingAkahuAccounts,
         onConfigure: onAkahuInit,
         onLink: onConnectAkahu,
@@ -676,6 +755,7 @@ export function useBuiltInBankSyncProviders({
         ),
         isConfigured: configuredProviders.enableBanking,
         canConfigure: canConfigureProviders,
+        requiresServer: true,
         isLoading: isEnableBankingLoading,
         onConfigure: onEnableBankingInit,
         onLink: onConnectEnableBanking,
@@ -691,6 +771,7 @@ export function useBuiltInBankSyncProviders({
     configuredProviders.pluggyai,
     configuredProviders.simpleFin,
     configuredProviders.akahu,
+    configuredProviders.plaid,
     enableBankingEnabled,
     akahuEnabled,
     isEnableBankingLoading,
@@ -707,6 +788,9 @@ export function useBuiltInBankSyncProviders({
     onEnableBankingReset,
     onGoCardlessInit,
     onGoCardlessReset,
+    onPlaidConfigure,
+    onPlaidLink,
+    onPlaidReset,
     onPluggyAiInit,
     onPluggyAiReset,
     onSimpleFinInit,

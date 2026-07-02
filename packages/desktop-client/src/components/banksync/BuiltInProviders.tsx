@@ -44,41 +44,18 @@ export function BuiltInProviders({
         </Paragraph>
       </View>
 
-      {syncServerStatus !== 'online' ? (
-        <View
-          style={{
-            border: `1px solid ${theme.tableBorder}`,
-            borderRadius: 8,
-            padding: 16,
-            backgroundColor: theme.tableBackground,
-          }}
-        >
-          <Button isDisabled style={{ padding: '10px 0', fontSize: 15 }}>
-            <Trans>Set up bank sync</Trans>
-          </Button>
-          <Paragraph style={{ fontSize: 15, marginTop: 10 }}>
-            <Trans>
-              Connect to a Bread Chaser server to set up{' '}
-              <Link
-                variant="external"
-                to="https://actualbudget.org/docs/advanced/bank-sync"
-                linkColor="muted"
-              >
-                automatic syncing
-              </Link>
-              .
-            </Trans>
-          </Paragraph>
-        </View>
-      ) : (
-        <View
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-            gap: 12,
-          }}
-        >
-          {providers.map(provider => (
+      <View
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: 12,
+        }}
+      >
+        {providers.map(provider => {
+          const isServerMissing =
+            provider.requiresServer && syncServerStatus !== 'online';
+
+          return (
             <View
               key={provider.id}
               data-testid={`bank-sync-provider-${provider.id}`}
@@ -116,15 +93,25 @@ export function BuiltInProviders({
                       fontWeight: 500,
                     }}
                   >
-                    {provider.isConfigured ? (
+                    {isServerMissing ? (
+                      <Trans>Requires a sync server</Trans>
+                    ) : provider.isConfigured ? (
                       <Trans>Configured</Trans>
                     ) : (
                       <Trans>Not configured</Trans>
                     )}
                   </Text>
+                  <Text
+                    style={{
+                      color: theme.pageTextSubdued,
+                      fontSize: 13,
+                    }}
+                  >
+                    {provider.description}
+                  </Text>
                 </View>
 
-                {provider.isConfigured && (
+                {provider.isConfigured && !isServerMissing && (
                   <DialogTrigger>
                     <Button
                       variant="bare"
@@ -173,7 +160,7 @@ export function BuiltInProviders({
               >
                 <Button
                   variant="bare"
-                  isDisabled={!provider.canConfigure}
+                  isDisabled={!provider.canConfigure || isServerMissing}
                   onPress={() => provider.onConfigure()}
                 >
                   {provider.isConfigured ? (
@@ -184,7 +171,7 @@ export function BuiltInProviders({
                 </Button>
                 <ButtonWithLoading
                   variant="primary"
-                  isDisabled={!provider.isConfigured}
+                  isDisabled={!provider.isConfigured || isServerMissing}
                   isLoading={provider.isLoading}
                   onPress={() => provider.onLink()}
                 >
@@ -192,8 +179,25 @@ export function BuiltInProviders({
                 </ButtonWithLoading>
               </View>
             </View>
-          ))}
-        </View>
+          );
+        })}
+      </View>
+
+      {syncServerStatus !== 'online' && (
+        <Paragraph style={{ fontSize: 14, color: theme.pageTextSubdued }}>
+          <Trans>
+            GoCardless, SimpleFIN, and Pluggy.ai route through a Bread Chaser
+            server — connect one to enable{' '}
+            <Link
+              variant="external"
+              to="https://actualbudget.org/docs/advanced/bank-sync"
+              linkColor="muted"
+            >
+              those providers
+            </Link>
+            . Plaid works without a server.
+          </Trans>
+        </Paragraph>
       )}
 
       {showPermissionWarning && (
