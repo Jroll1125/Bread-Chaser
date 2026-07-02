@@ -65,6 +65,7 @@ export type AccountHandlers = {
   'plaid-poll-link': typeof pollPlaidLink;
   'plaid-sandbox-link': typeof plaidSandboxLink;
   'email-receipts-status': typeof emailReceiptsStatus;
+  'email-receipts-configure': typeof emailReceiptsConfigure;
   'email-receipts-connect': typeof emailReceiptsConnect;
   'email-receipts-poll-connect': typeof emailReceiptsPollConnect;
   'email-receipts-sync': typeof emailReceiptsSync;
@@ -419,6 +420,14 @@ async function plaidSandboxLink(
 
 async function emailReceiptsStatus() {
   return emailReceipts.getEmailReceiptsStatus();
+}
+
+async function emailReceiptsConfigure(args: {
+  clientId: string;
+  clientSecret: string;
+}) {
+  await emailReceipts.configureEmailReceipts(args);
+  return 'ok' as const;
 }
 
 async function emailReceiptsConnect() {
@@ -1910,6 +1919,7 @@ app.method('plaid-create-link-token', plaidCreateLinkToken);
 app.method('plaid-poll-link', pollPlaidLink);
 app.method('plaid-sandbox-link', plaidSandboxLink);
 app.method('email-receipts-status', emailReceiptsStatus);
+app.method('email-receipts-configure', emailReceiptsConfigure);
 app.method('email-receipts-connect', emailReceiptsConnect);
 app.method('email-receipts-poll-connect', emailReceiptsPollConnect);
 app.method('email-receipts-sync', mutator(undoable(emailReceiptsSync)));

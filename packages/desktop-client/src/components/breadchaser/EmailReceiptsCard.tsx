@@ -48,6 +48,21 @@ export function EmailReceiptsCard() {
 
   useEffect(refreshStatus, []);
 
+  const onSetUp = () => {
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'email-receipts-setup',
+          options: {
+            onSuccess: () => {
+              refreshStatus();
+            },
+          },
+        },
+      }),
+    );
+  };
+
   const onConnect = () => {
     dispatch(
       pushModal({
@@ -137,8 +152,8 @@ export function EmailReceiptsCard() {
       ) : !status.configured ? (
         <Text style={{ color: theme.pageTextSubdued, lineHeight: 1.5 }}>
           <Trans>
-            Add your Google OAuth client to email-receipts.json (clientId,
-            clientSecret) in the data directory to get started.
+            Set up a one-time Google connection, then your receipts get
+            extracted by a local model and matched to your transactions.
           </Trans>
         </Text>
       ) : !status.connected && !status.needsReconnect ? (
@@ -179,6 +194,11 @@ export function EmailReceiptsCard() {
       )}
 
       <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+        {status?.available && !status.configured && (
+          <Button variant="primary" onPress={onSetUp}>
+            <Trans>Set up Gmail</Trans>
+          </Button>
+        )}
         {status?.available && status.configured && !status.connected && (
           <Button variant="primary" onPress={onConnect}>
             {status.needsReconnect ? (

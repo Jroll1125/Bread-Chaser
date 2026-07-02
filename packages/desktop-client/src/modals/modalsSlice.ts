@@ -124,6 +124,12 @@ export type Modal =
       };
     }
   | {
+      name: 'email-receipts-setup';
+      options: {
+        onSuccess: () => void;
+      };
+    }
+  | {
       name: 'email-receipts-connect';
       options: {
         onSuccess: (email: string) => void;

@@ -124,6 +124,41 @@ async function getClientSecret(
   return secureStore.getSecret(CLIENT_SECRET_KEY);
 }
 
+/**
+ * In-app setup: store the Google OAuth client credentials without the user
+ * hand-editing email-receipts.json. clientId lands in the plain config file
+ * (alongside any llmEndpoint/model overrides already there); clientSecret
+ * goes straight into the OS-encrypted secure store and never touches disk in
+ * the clear.
+ */
+export async function configureEmailReceipts({
+  clientId,
+  clientSecret,
+}: {
+  clientId: string;
+  clientSecret: string;
+}): Promise<void> {
+  if (!(await secureStore.isAvailable())) {
+    throw new Error(
+      'Secure storage is unavailable; email receipts need the desktop app.',
+    );
+  }
+  const trimmedId = clientId.trim();
+  const trimmedSecret = clientSecret.trim();
+  if (!trimmedId || !trimmedSecret) {
+    throw new Error('Both the client ID and client secret are required.');
+  }
+
+  const existing = (await readConfigFile()) ?? {};
+  // Drop any stray plaintext secret from the file; the secure store owns it.
+  const { clientSecret: _drop, ...rest } = existing;
+  await lootFs.writeFile(
+    getConfigPath(),
+    JSON.stringify({ ...rest, clientId: trimmedId }, null, 2),
+  );
+  await secureStore.setSecret(CLIENT_SECRET_KEY, trimmedSecret);
+}
+
 async function getConfig(): Promise<EmailReceiptsConfig | null> {
   const fileConfig = await readConfigFile();
   const clientSecret = await getClientSecret(fileConfig);
