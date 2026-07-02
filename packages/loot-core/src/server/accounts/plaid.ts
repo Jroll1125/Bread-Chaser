@@ -134,42 +134,69 @@ async function requirePlaidConfig(): Promise<PlaidConfig> {
   return config;
 }
 
+// Plaid's rate limits (e.g. /transactions/sync: 50/min per Item in
+// Production) are per-minute rolling windows with no Retry-After header, so
+// a fixed wait just past a minute is the simplest correct backoff. This
+// matters most for a first full sync across several accounts on one item -
+// each account pages through its own history via /transactions/sync with no
+// artificial pacing between calls, and that legitimate volume (proportional
+// to actual transaction count, not redundant calls) can cross the per-item
+// cap well before the last account is reached.
+const RATE_LIMIT_RETRY_WAIT_MS = 65_000;
+const RATE_LIMIT_MAX_RETRIES = 2;
+
 async function plaidFetch<T>(
   path: string,
   body: Record<string, unknown>,
 ): Promise<T> {
   const { clientId, env, secret } = await requirePlaidConfig();
 
-  logger.log('Plaid request:', env, path);
-  const res = await fetch(PLAID_HOSTS[env] + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: clientId, secret, ...body }),
-  });
+  for (let attempt = 0; ; attempt++) {
+    logger.log('Plaid request:', env, path);
+    const res = await fetch(PLAID_HOSTS[env] + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: clientId, secret, ...body }),
+    });
 
-  let data;
-  try {
-    data = await res.json();
-  } catch {
-    throw new BankSyncError(
-      `Plaid returned a non-JSON response (${res.status}) for ${path}`,
-      'PLAID_ERROR',
-      String(res.status),
-    );
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw new BankSyncError(
+        `Plaid returned a non-JSON response (${res.status}) for ${path}`,
+        'PLAID_ERROR',
+        String(res.status),
+      );
+    }
+
+    if (!res.ok || data?.error_code) {
+      if (
+        data?.error_type === 'RATE_LIMIT_EXCEEDED' &&
+        attempt < RATE_LIMIT_MAX_RETRIES
+      ) {
+        logger.warn(
+          `Plaid rate limit on ${path} (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES + 1}); ` +
+            `waiting ${RATE_LIMIT_RETRY_WAIT_MS / 1000}s and retrying`,
+        );
+        await new Promise(resolve =>
+          setTimeout(resolve, RATE_LIMIT_RETRY_WAIT_MS),
+        );
+        continue;
+      }
+
+      // Plaid's error_type/error_code (e.g. ITEM_ERROR / ITEM_LOGIN_REQUIRED)
+      // already match the categories handleSyncError maps to statuses like
+      // reauth-required.
+      throw new BankSyncError(
+        data?.error_message ?? `Plaid request failed (${res.status})`,
+        data?.error_type ?? 'PLAID_ERROR',
+        data?.error_code ?? String(res.status),
+      );
+    }
+
+    return data as T;
   }
-
-  if (!res.ok || data?.error_code) {
-    // Plaid's error_type/error_code (e.g. ITEM_ERROR / ITEM_LOGIN_REQUIRED)
-    // already match the categories handleSyncError maps to statuses like
-    // reauth-required.
-    throw new BankSyncError(
-      data?.error_message ?? `Plaid request failed (${res.status})`,
-      data?.error_type ?? 'PLAID_ERROR',
-      data?.error_code ?? String(res.status),
-    );
-  }
-
-  return data as T;
 }
 
 type PlaidApiAccount = {
