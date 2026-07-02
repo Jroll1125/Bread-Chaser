@@ -306,7 +306,11 @@ async function startSyncServer() {
     };
 
     if (isDev) {
-      forkOptions = { ...forkOptions, execArgv: ['--inspect'] };
+      // The loot-core server process uses the default inspector port (9229);
+      // without a distinct port here, whichever process forks first wins the
+      // bind and the other logs "Starting inspector ... address already in
+      // use" on every boot, making which process is debuggable a race.
+      forkOptions = { ...forkOptions, execArgv: ['--inspect=9230'] };
     }
 
     let syncServerStarted = false;
