@@ -14,6 +14,7 @@ import {
   net,
   powerMonitor,
   protocol,
+  safeStorage,
   shell,
   utilityProcess,
 } from 'electron';
@@ -195,6 +196,38 @@ async function createBackgroundProcess() {
       case 'captureEvent':
       case 'captureBreadcrumb':
         break;
+      // The server runs in a utility process, where Electron doesn't expose
+      // safeStorage; encrypt/decrypt for its secure store is bridged through
+      // here (see loot-core platform/server/secure-store).
+      case 'secure-store-request': {
+        const { id, op, payload } = msg;
+        let result: boolean | string | null = null;
+        let error: string | null = null;
+        try {
+          switch (op) {
+            case 'is-available':
+              result = safeStorage.isEncryptionAvailable();
+              break;
+            case 'encrypt':
+              result = safeStorage.encryptString(payload).toString('base64');
+              break;
+            case 'decrypt':
+              result = safeStorage.decryptString(Buffer.from(payload, 'base64'));
+              break;
+            default:
+              error = 'Unknown secure-store op: ' + op;
+          }
+        } catch (err) {
+          error = err instanceof Error ? err.message : String(err);
+        }
+        serverProcess?.postMessage({
+          type: 'secure-store-response',
+          id,
+          result,
+          error,
+        });
+        break;
+      }
       case 'reply':
       case 'error':
       case 'push':

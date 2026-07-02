@@ -598,6 +598,9 @@ export function useBuiltInBankSyncProviders({
     pluggyai: Boolean(isPluggyAiSetupComplete),
     enableBanking: Boolean(isEnableBankingSetupComplete),
     akahu: Boolean(isAkahuSetupComplete),
+    // Plaid is native to the Electron build and managed from the Bread
+    // Chaser hub, not the sync-server provider settings.
+    plaid: false,
   } satisfies Record<BankSyncProviders, boolean>;
 
   const providers = useMemo<BuiltInBankSyncProviderState[]>(() => {

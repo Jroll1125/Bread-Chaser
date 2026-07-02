@@ -29,6 +29,7 @@ import type {
   CategoryEntity,
   GoCardlessToken,
   ImportTransactionEntity,
+  PlaidItem,
   SyncServerAkahuAccount,
   SyncServerEnableBankingAccount,
   SyncServerGoCardlessAccount,
@@ -39,6 +40,7 @@ import type {
 
 import * as link from './link';
 import { getStartingBalancePayee } from './payees';
+import * as plaid from './plaid';
 import * as bankSync from './sync';
 
 // Shared base type for link account parameters
@@ -56,6 +58,10 @@ export type AccountHandlers = {
   'account-properties': typeof getAccountProperties;
   'gocardless-accounts-link': typeof linkGoCardlessAccount;
   'simplefin-accounts-link': typeof linkSimpleFinAccount;
+  'plaid-status': typeof plaidStatus;
+  'plaid-create-link-token': typeof plaidCreateLinkToken;
+  'plaid-poll-link': typeof pollPlaidLink;
+  'plaid-sandbox-link': typeof plaidSandboxLink;
   'pluggyai-accounts-link': typeof linkPluggyAiAccount;
   'akahu-accounts-link': typeof linkAkahuAccount;
   'enablebanking-accounts-link': typeof linkEnableBankingAccount;
@@ -305,6 +311,99 @@ async function linkSimpleFinAccount({
   });
 
   return 'ok';
+}
+
+async function plaidStatus() {
+  return plaid.getPlaidStatus();
+}
+
+async function plaidCreateLinkToken() {
+  return plaid.createHostedLink();
+}
+
+/**
+ * Create Actual accounts for every not-yet-linked account on a Plaid item and
+ * run their initial sync. The item_id is stored as banks.bank_id (the same
+ * pattern GoCardless uses for its requisition id).
+ */
+async function linkPlaidItem(item: PlaidItem) {
+  const bank = await link.findOrCreateBank(
+    { name: item.institution },
+    item.item_id,
+  );
+  const createdAccountIds: Array<AccountEntity['id']> = [];
+
+  for (const account of item.accounts) {
+    const existing = await db.first<Pick<db.DbAccount, 'id'>>(
+      'SELECT id FROM accounts WHERE account_id = ? AND tombstone = 0',
+      [account.account_id],
+    );
+    if (existing) {
+      continue;
+    }
+
+    const id = uuidv4();
+    await db.insertWithUUID('accounts', {
+      id,
+      account_id: account.account_id,
+      mask: account.mask,
+      name: account.name,
+      official_name: account.official_name,
+      bank: bank.id,
+      offbudget: plaid.isOffBudgetPlaidType(account.type) ? 1 : 0,
+      account_sync_source: 'plaid',
+    });
+    await db.insertPayee({
+      name: '',
+      transfer_acct: id,
+    });
+
+    const syncRes = await bankSync.syncAccount(
+      undefined,
+      undefined,
+      id,
+      account.account_id,
+      bank.bank_id,
+    );
+    await handleSyncResponse(syncRes, id);
+    createdAccountIds.push(id);
+  }
+
+  if (createdAccountIds.length > 0) {
+    connection.send('sync-event', {
+      type: 'success',
+      tables: ['transactions', 'accounts'],
+    });
+  }
+
+  return { createdAccountIds };
+}
+
+async function pollPlaidLink({ linkToken }: { linkToken: string }) {
+  const poll = await plaid.pollHostedLink(linkToken);
+  if (poll.status !== 'completed') {
+    return { status: 'pending' as const };
+  }
+
+  const item = await plaid.exchangePublicToken(
+    poll.publicToken,
+    poll.institution,
+  );
+  const { createdAccountIds } = await linkPlaidItem(item);
+  return { status: 'completed' as const, createdAccountIds };
+}
+
+async function plaidSandboxLink(
+  { institutionId }: { institutionId?: string } = {},
+) {
+  const status = await plaid.getPlaidStatus();
+  if (status.env !== 'sandbox') {
+    throw new Error(
+      'plaid-sandbox-link is only available when the Plaid env is sandbox',
+    );
+  }
+  const item = await plaid.createSandboxItem(institutionId);
+  return linkPlaidItem(item);
 }
 
 async function linkPluggyAiAccount({
@@ -1737,6 +1836,10 @@ app.method('account-balance', getAccountBalance);
 app.method('account-properties', getAccountProperties);
 app.method('gocardless-accounts-link', linkGoCardlessAccount);
 app.method('simplefin-accounts-link', linkSimpleFinAccount);
+app.method('plaid-status', plaidStatus);
+app.method('plaid-create-link-token', plaidCreateLinkToken);
+app.method('plaid-poll-link', pollPlaidLink);
+app.method('plaid-sandbox-link', plaidSandboxLink);
 app.method('pluggyai-accounts-link', linkPluggyAiAccount);
 app.method('akahu-accounts-link', linkAkahuAccount);
 app.method('enablebanking-accounts-link', linkEnableBankingAccount);

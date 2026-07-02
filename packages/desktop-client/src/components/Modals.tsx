@@ -70,6 +70,7 @@ import { OpenIDEnableModal } from './modals/OpenIDEnableModal';
 import { OutOfSyncMigrationsModal } from './modals/OutOfSyncMigrationsModal';
 import { PasswordEnableModal } from './modals/PasswordEnableModal';
 import { PayeeAutocompleteModal } from './modals/PayeeAutocompleteModal';
+import { PlaidLinkModal } from './modals/PlaidLinkModal';
 import { PluggyAiInitialiseModal } from './modals/PluggyAiInitialiseModal';
 import { ScheduledTransactionMenuModal } from './modals/ScheduledTransactionMenuModal';
 import { SelectLinkedAccountsModal } from './modals/SelectLinkedAccountsModal';
@@ -183,6 +184,9 @@ export function Modals() {
 
         case 'gocardless-init':
           return <GoCardlessInitialiseModal key={key} {...modal.options} />;
+
+        case 'plaid-link':
+          return <PlaidLinkModal key={key} {...modal.options} />;
 
         case 'simplefin-init':
           return <SimpleFinInitialiseModal key={key} {...modal.options} />;

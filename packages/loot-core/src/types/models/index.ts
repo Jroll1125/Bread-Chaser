@@ -14,6 +14,7 @@ export type * from './note';
 export type * from './openid';
 export type * from './payee';
 export type * from './payee-location';
+export type * from './plaid';
 export type * from './pluggyai';
 export type * from './reports';
 export type * from './rule';

@@ -36,6 +36,7 @@ import type {
 } from '#types/models';
 
 import { getStartingBalancePayee } from './payees';
+import { downloadPlaidTransactions, savePlaidCursor } from './plaid';
 import { title } from './title';
 
 function BankSyncError(type: string, code: string, details?: object) {
@@ -1095,6 +1096,15 @@ async function processBankSyncDownload(
         currentBalance,
       );
       balanceToUse = Math.round(previousBalance);
+    } else if (acctRow.account_sync_source === 'plaid') {
+      // Seed so the account reconciles to Plaid's CURRENT balance once the
+      // downloaded transactions land: initial = signed current - sum(posted).
+      const previousBalance = transactions.reduce(
+        (total, trans) =>
+          total - amountToInteger(trans.transactionAmount.amount),
+        currentBalance,
+      );
+      balanceToUse = Math.round(previousBalance);
     }
 
     const oldestTransaction = transactions[transactions.length - 1];
@@ -1196,6 +1206,23 @@ export async function syncAccount(
     );
   } else if (acctRow.account_sync_source === 'enableBanking') {
     download = await downloadEnableBankingTransactions(acctId, syncStartDate);
+  } else if (acctRow.account_sync_source === 'plaid') {
+    // bankId holds the Plaid item_id (the same pattern GoCardless uses for
+    // its requisition id).
+    const { download: plaidDownload, nextCursor } =
+      await downloadPlaidTransactions(bankId, acctId, syncStartDate);
+    const res = await processBankSyncDownload(
+      plaidDownload,
+      id,
+      acctRow,
+      newAccount,
+      customStartingBalance,
+      customStartingDate,
+    );
+    // Persist the cursor only after the transactions are committed, so a
+    // failure can never advance it past data that wasn't imported.
+    await savePlaidCursor(bankId, acctId, nextCursor);
+    return res;
   } else {
     throw new Error(
       `Unrecognized bank-sync provider: ${acctRow.account_sync_source}`,

@@ -5,6 +5,7 @@ import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
+import { BankSyncCard } from '#components/breadchaser/BankSyncCard';
 import { Page } from '#components/Page';
 
 type PillarStatus = 'in-progress' | 'planned';
@@ -74,13 +75,7 @@ export function BreadChaserPage() {
           </Trans>
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 15 }}>
-          <PillarCard
-            title={t('Bank sync')}
-            description={t(
-              'Automatic transaction and balance imports from your banks via Plaid.',
-            )}
-            status="in-progress"
-          />
+          <BankSyncCard />
           <PillarCard
             title={t('Email receipts')}
             description={t(

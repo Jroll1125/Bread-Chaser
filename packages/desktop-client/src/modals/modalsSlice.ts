@@ -118,6 +118,12 @@ export type Modal =
       };
     }
   | {
+      name: 'plaid-link';
+      options: {
+        onSuccess: (createdAccountIds: string[]) => void;
+      };
+    }
+  | {
       name: 'simplefin-init';
       options: {
         onSuccess: () => void;

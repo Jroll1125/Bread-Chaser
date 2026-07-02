@@ -18,6 +18,12 @@ export const init: T.Init = function (_socketName, handlers) {
   process.parentPort.on('message', ({ data }) => {
     const { id, name, args, undoTag, catchErrors } = data;
 
+    // Messages without a handler name are internal main<->server traffic
+    // (e.g. secure-store responses), not client calls.
+    if (typeof name !== 'string') {
+      return;
+    }
+
     if (handlers[name]) {
       runHandler(handlers[name], args, { undoTag, name }).then(
         result => {
