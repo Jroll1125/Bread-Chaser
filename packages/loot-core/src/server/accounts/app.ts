@@ -67,6 +67,7 @@ export type AccountHandlers = {
   'email-receipts-status': typeof emailReceiptsStatus;
   'email-receipts-configure': typeof emailReceiptsConfigure;
   'email-receipts-set-auto-apply': typeof emailReceiptsSetAutoApply;
+  'email-receipts-set-history-days': typeof emailReceiptsSetHistoryDays;
   'email-receipts-connect': typeof emailReceiptsConnect;
   'email-receipts-poll-connect': typeof emailReceiptsPollConnect;
   'email-receipts-sync': typeof emailReceiptsSync;
@@ -437,6 +438,15 @@ async function emailReceiptsSetAutoApply({
   autoApply: boolean;
 }) {
   await emailReceipts.setAutoApply(autoApply);
+  return 'ok' as const;
+}
+
+async function emailReceiptsSetHistoryDays({
+  historyDays,
+}: {
+  historyDays: number;
+}) {
+  await emailReceipts.setHistoryDays(historyDays);
   return 'ok' as const;
 }
 
@@ -1931,6 +1941,7 @@ app.method('plaid-sandbox-link', plaidSandboxLink);
 app.method('email-receipts-status', emailReceiptsStatus);
 app.method('email-receipts-configure', emailReceiptsConfigure);
 app.method('email-receipts-set-auto-apply', emailReceiptsSetAutoApply);
+app.method('email-receipts-set-history-days', emailReceiptsSetHistoryDays);
 app.method('email-receipts-connect', emailReceiptsConnect);
 app.method('email-receipts-poll-connect', emailReceiptsPollConnect);
 app.method('email-receipts-sync', mutator(undoable(emailReceiptsSync)));

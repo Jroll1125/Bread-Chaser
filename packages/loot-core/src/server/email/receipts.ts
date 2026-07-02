@@ -60,6 +60,10 @@ const DEFAULT_MAX_MESSAGES = 2000;
 // overlap re-lists a few already-seen messages (harmless — they dedupe on
 // Gmail id) so nothing that arrived around the previous sync is missed.
 const INCREMENTAL_OVERLAP_DAYS = 3;
+// Bounds for the UI-configurable lookback so the Gmail `newer_than:Nd` query
+// stays sane: at least a day, at most ~10 years.
+const MIN_HISTORY_DAYS = 1;
+const MAX_HISTORY_DAYS = 3650;
 
 type EmailReceiptsConfigFile = {
   clientId?: string;
@@ -189,6 +193,17 @@ async function writeConfigFile(
  */
 export async function setAutoApply(autoApply: boolean): Promise<void> {
   await writeConfigFile({ autoApply });
+}
+
+export async function setHistoryDays(historyDays: number): Promise<void> {
+  if (!Number.isFinite(historyDays)) {
+    throw new Error('History days must be a number.');
+  }
+  const clamped = Math.min(
+    MAX_HISTORY_DAYS,
+    Math.max(MIN_HISTORY_DAYS, Math.round(historyDays)),
+  );
+  await writeConfigFile({ historyDays: clamped });
 }
 
 async function getConfig(): Promise<EmailReceiptsConfig | null> {
@@ -771,6 +786,7 @@ export async function getEmailReceiptsStatus(): Promise<EmailReceiptsStatus> {
       pendingReview: 0,
       lastSync: null,
       autoApply: fileConfig?.autoApply ?? false,
+      historyDays: fileConfig?.historyDays ?? DEFAULT_HISTORY_DAYS,
     };
   }
 
@@ -819,6 +835,7 @@ export async function getEmailReceiptsStatus(): Promise<EmailReceiptsStatus> {
     pendingReview: pendingRow?.count ?? 0,
     lastSync,
     autoApply: config?.autoApply ?? false,
+    historyDays: config?.historyDays ?? DEFAULT_HISTORY_DAYS,
   };
 }
 

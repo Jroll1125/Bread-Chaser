@@ -19,6 +19,8 @@ export type EmailReceiptsStatus = {
   // Off by default: exact single-candidate matches wait in the review queue
   // instead of applying themselves until this is turned on.
   autoApply: boolean;
+  // How many days of Gmail history each sync scans (Gmail `newer_than:Nd`).
+  historyDays: number;
 };
 
 export type EmailReceiptLineItem = {

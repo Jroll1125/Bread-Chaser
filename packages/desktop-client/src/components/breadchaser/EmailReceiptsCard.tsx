@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { Button, ButtonWithLoading } from '@actual-app/components/button';
+import { Select } from '@actual-app/components/select';
 import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { Toggle } from '@actual-app/components/toggle';
@@ -106,6 +107,18 @@ export function EmailReceiptsCard() {
     refreshStatus();
   };
 
+  const onSetHistoryDays = async (historyDays: number) => {
+    // Optimistic like the auto-apply toggle; the server is the source of
+    // truth on the next refresh.
+    setStatus(prev => (prev ? { ...prev, historyDays } : prev));
+    try {
+      await send('email-receipts-set-history-days', { historyDays });
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+    refreshStatus();
+  };
+
   const onSyncNow = async () => {
     setIsSyncing(true);
     setMessage(null);
@@ -128,6 +141,26 @@ export function EmailReceiptsCard() {
     setIsSyncing(false);
     refreshStatus();
   };
+
+  // Common look-back presets, in days. A non-preset current value (e.g. a
+  // hand-edited 720) is preserved so it still shows in the dropdown.
+  const lookbackOptions: Array<[string, string]> = [
+    ['30', t('1 month')],
+    ['90', t('3 months')],
+    ['180', t('6 months')],
+    ['365', t('1 year')],
+    ['730', t('2 years')],
+    ['1095', t('3 years')],
+  ];
+  if (
+    status &&
+    !lookbackOptions.some(([value]) => value === String(status.historyDays))
+  ) {
+    lookbackOptions.unshift([
+      String(status.historyDays),
+      t('{{count}} days', { count: status.historyDays }),
+    ]);
+  }
 
   return (
     <View
@@ -226,6 +259,26 @@ export function EmailReceiptsCard() {
               </Trans>
             </Text>
           )}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              paddingTop: 4,
+            }}
+          >
+            <Text style={{ color: theme.pageTextSubdued }}>
+              <Trans>Scan the last</Trans>
+            </Text>
+            <Select
+              value={String(status.historyDays)}
+              options={lookbackOptions}
+              onChange={value => {
+                void onSetHistoryDays(parseInt(value, 10));
+              }}
+            />
+          </View>
         </View>
       )}
 
