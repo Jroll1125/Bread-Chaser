@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
 
-ROOT=`dirname $0`
+ROOT="$(dirname "$0")"
 RELEASE=""
 CI=${CI:-false}
 
@@ -57,7 +57,14 @@ yarn workspace @actual-app/core build:node
 yarn workspace @actual-app/web build --mode=desktop # electron specific build
 
 # required for running the sync-server server
-yarn build:browser
+# Forward --skip-translations so package-browser does not re-run the
+# translation git dance (which fails when packages/desktop-client/locale is
+# not a git checkout, e.g. a local English-only build).
+if [ $SKIP_TRANSLATIONS == true ]; then
+  yarn build:browser --skip-translations
+else
+  yarn build:browser
+fi
 yarn workspace @actual-app/sync-server build
 
 # Emit @actual-app/core declarations so desktop-electron (which includes typings/window.ts) can build

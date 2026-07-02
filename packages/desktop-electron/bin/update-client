@@ -1,21 +1,24 @@
 #!/bin/bash -e
 
-ROOT=`dirname $0`/..
+# cd into the package root, then use relative paths. The repo checkout lives
+# under directories with spaces ("Windows 10 Pro", "Lunch Money"), so an
+# absolute ${ROOT} would word-split every unquoted use below; relative paths
+# from the (spaced) cwd do not.
+cd "$(dirname "$0")/.."
 
-rm -rf ${ROOT}/build
-mkdir -p ${ROOT}/build
-cp -r ${ROOT}/../desktop-client/build-electron ${ROOT}/build/client-build
+rm -rf build
+mkdir -p build
+cp -r ../desktop-client/build-electron build/client-build
 
 # Remove the embedded backend for the browser version. Will improve
 # this process
-rm -rf ${ROOT}/build/client-build/data
-rm -rf ${ROOT}/build/client-build/*kcab.*
-rm -rf ${ROOT}/build/client-build/*.wasm
-rm -rf ${ROOT}/build/client-build/*.map
+rm -rf build/client-build/data
+rm -rf build/client-build/*kcab.*
+rm -rf build/client-build/*.wasm
+rm -rf build/client-build/*.map
 
 # Copy loot-core into build directory
-mkdir -p ${ROOT}/build/loot-core/lib-dist/electron
-cp ${ROOT}/../loot-core/lib-dist/electron/bundle.desktop.js ${ROOT}/build/loot-core/lib-dist/electron/bundle.desktop.js
-cp ${ROOT}/../loot-core/default-db.sqlite ${ROOT}/build/loot-core/default-db.sqlite
-cp -r ${ROOT}/../loot-core/migrations ${ROOT}/build/loot-core/migrations
-
+mkdir -p build/loot-core/lib-dist/electron
+cp ../loot-core/lib-dist/electron/bundle.desktop.js build/loot-core/lib-dist/electron/bundle.desktop.js
+cp ../loot-core/default-db.sqlite build/loot-core/default-db.sqlite
+cp -r ../loot-core/migrations build/loot-core/migrations

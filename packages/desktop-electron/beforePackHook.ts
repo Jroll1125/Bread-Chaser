@@ -3,8 +3,15 @@ import { Arch } from 'electron-builder';
 import type { AfterPackContext } from 'electron-builder';
 
 /* The beforePackHook runs before packing the Electron app for an architecture
-We hook in here to build anything architecture dependent - such as beter-sqlite3
-To build, we call @electron/rebuild on the better-sqlite3 module */
+We hook in here to build anything architecture dependent - such as better-sqlite3
+To build, we call @electron/rebuild on the better-sqlite3 module.
+
+bcrypt is deliberately NOT rebuilt here: bcrypt 6 ships ABI-stable N-API
+prebuilds (prebuildify -> prebuilds/<platform>/bcrypt.node, loaded via
+node-gyp-build) that run in Electron unchanged. @electron/rebuild cannot detect
+those and would compile from source, which fails on machines without a C++
+toolchain (e.g. Windows without MSVC). Packaging the existing prebuild is
+correct and matches the `rebuild-electron` script's module list. */
 const beforePackHook = async (context: AfterPackContext) => {
   const arch: string = Arch[context.arch];
   const buildPath = context.packager.projectDir;
@@ -23,10 +30,10 @@ const beforePackHook = async (context: AfterPackContext) => {
       electronVersion,
       force: true,
       projectRootPath,
-      onlyModules: ['better-sqlite3', 'bcrypt'],
+      onlyModules: ['better-sqlite3'],
     });
 
-    console.info(`Rebuilt better-sqlite3 and bcrypt with ${arch}!`);
+    console.info(`Rebuilt better-sqlite3 with ${arch}!`);
   } catch (err) {
     console.error('beforePackHook:', err);
     process.exit(); // End the process - unsuccessful build
