@@ -1,0 +1,869 @@
+import { v4 as uuidv4 } from 'uuid';
+
+import { fetch } from '#platform/server/fetch';
+import * as lootFs from '#platform/server/fs';
+import { logger } from '#platform/server/log';
+import * as oauthLoopback from '#platform/server/oauth-loopback';
+import * as secureStore from '#platform/server/secure-store';
+import { aqlQuery } from '#server/aql';
+import { q } from '#shared/query';
+import type {
+  EmailMatchProposal,
+  EmailReceiptsConnectPoll,
+  EmailReceiptsConnectStart,
+  EmailReceiptsStatus,
+  EmailReceiptsSyncResult,
+  EmailReviewItem,
+  ReceiptExtraction,
+} from '#types/models';
+
+import { all, first, getEmailDb, getMeta, run, setMeta } from './db';
+import {
+  classify,
+  extractReceipt,
+  LlmUnavailableError,
+  parseReceiptJson,
+  pingLlm,
+} from './extract';
+import {
+  applyProposal,
+  findCandidates,
+  recordProposal,
+  rejectProposal,
+  toEmailMatchProposal,
+  unapplyProposal,
+} from './match';
+
+/**
+ * The Email Receipts provider: connect Ben's Gmail read-only, pull receipt
+ * emails via the Gmail REST API (plain fetch, no googleapis), extract them
+ * with a local LLM, and match them against the real ledger. Mirrors the
+ * Plaid slice's shape: config file in the data dir, secrets in the
+ * OS-encrypted secure store, handlers registered on the accounts app.
+ */
+
+const CONFIG_FILE = 'email-receipts.json';
+const CLIENT_SECRET_KEY = 'gmail-oauth-client-secret';
+const REFRESH_TOKEN_KEY = 'gmail-oauth-refresh-token';
+
+const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
+const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+
+const DEFAULT_LLM_ENDPOINT = 'http://localhost:11434';
+const DEFAULT_LLM_MODEL = 'qwen2.5:7b';
+const DEFAULT_HISTORY_DAYS = 45;
+const DEFAULT_MAX_MESSAGES = 200;
+
+type EmailReceiptsConfigFile = {
+  clientId?: string;
+  // Only present transiently: migrated into the secure store (and stripped
+  // from the file) on first read, same as plaid.json's secret.
+  clientSecret?: string;
+  gmailQuery?: string;
+  senderAllow?: string[];
+  senderDeny?: string[];
+  llmEndpoint?: string;
+  llmModel?: string;
+  historyDays?: number;
+  maxMessagesPerSync?: number;
+};
+
+type EmailReceiptsConfig = {
+  clientId: string;
+  clientSecret: string;
+  gmailQuery: string | null;
+  senderAllow: string[];
+  senderDeny: string[];
+  llmEndpoint: string;
+  llmModel: string;
+  historyDays: number;
+  maxMessagesPerSync: number;
+};
+
+function getConfigPath(): string {
+  const dataDir = lootFs.getDataDir();
+  if (!dataDir) {
+    throw new Error('Email receipts require the data directory to be set');
+  }
+  return lootFs.join(dataDir, CONFIG_FILE);
+}
+
+async function readConfigFile(): Promise<EmailReceiptsConfigFile | null> {
+  const configPath = getConfigPath();
+  if (!(await lootFs.exists(configPath))) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(await lootFs.readFile(configPath));
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('email-receipts config is not a JSON object');
+    }
+    return parsed;
+  } catch (err) {
+    logger.error(`Could not parse email-receipts config at ${configPath}`, err);
+    return null;
+  }
+}
+
+async function getClientSecret(
+  fileConfig: EmailReceiptsConfigFile | null,
+): Promise<string | null> {
+  if (!(await secureStore.isAvailable())) {
+    return null;
+  }
+  // One-time migration: a clientSecret dropped into email-receipts.json moves
+  // into the OS-encrypted store and is stripped from the plain file.
+  if (fileConfig?.clientSecret) {
+    await secureStore.setSecret(CLIENT_SECRET_KEY, fileConfig.clientSecret);
+    const { clientSecret: _secret, ...rest } = fileConfig;
+    await lootFs.writeFile(getConfigPath(), JSON.stringify(rest, null, 2));
+    delete fileConfig.clientSecret;
+  }
+  return secureStore.getSecret(CLIENT_SECRET_KEY);
+}
+
+async function getConfig(): Promise<EmailReceiptsConfig | null> {
+  const fileConfig = await readConfigFile();
+  const clientSecret = await getClientSecret(fileConfig);
+  if (!fileConfig?.clientId || !clientSecret) {
+    return null;
+  }
+  return {
+    clientId: fileConfig.clientId,
+    clientSecret,
+    gmailQuery: fileConfig.gmailQuery ?? null,
+    senderAllow: fileConfig.senderAllow ?? [],
+    senderDeny: fileConfig.senderDeny ?? [],
+    llmEndpoint: fileConfig.llmEndpoint ?? DEFAULT_LLM_ENDPOINT,
+    llmModel: fileConfig.llmModel ?? DEFAULT_LLM_MODEL,
+    historyDays: fileConfig.historyDays ?? DEFAULT_HISTORY_DAYS,
+    maxMessagesPerSync: fileConfig.maxMessagesPerSync ?? DEFAULT_MAX_MESSAGES,
+  };
+}
+
+async function requireConfig(): Promise<EmailReceiptsConfig> {
+  const config = await getConfig();
+  if (!config) {
+    throw new Error(
+      'Email receipts are not configured. Create email-receipts.json ' +
+        '(clientId, clientSecret) in the data directory.',
+    );
+  }
+  return config;
+}
+
+// ---------------------------------------------------------------------------
+// OAuth (Google "Desktop app" client, loopback redirect)
+// ---------------------------------------------------------------------------
+
+let pendingConnect: { port: number; state: string } | null = null;
+let cachedAccessToken: { token: string; expiresAt: number } | null = null;
+
+function redirectUri(port: number): string {
+  return `http://127.0.0.1:${port}`;
+}
+
+export async function startGmailConnect(): Promise<EmailReceiptsConnectStart> {
+  const config = await requireConfig();
+  const port = await oauthLoopback.startLoopback();
+  const state = uuidv4();
+  pendingConnect = { port, state };
+
+  const params = new URLSearchParams({
+    client_id: config.clientId,
+    redirect_uri: redirectUri(port),
+    response_type: 'code',
+    scope: GMAIL_SCOPE,
+    // A refresh token is only issued with offline access and (for repeat
+    // consents on a Testing-status app) an explicit consent prompt.
+    access_type: 'offline',
+    prompt: 'consent',
+    state,
+  });
+  return { url: `${GOOGLE_AUTH_URL}?${params.toString()}` };
+}
+
+type TokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
+};
+
+async function tokenRequest(
+  body: Record<string, string>,
+): Promise<TokenResponse> {
+  const res = await fetch(GOOGLE_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(body).toString(),
+  });
+  return (await res.json()) as TokenResponse;
+}
+
+export async function pollGmailConnect(): Promise<EmailReceiptsConnectPoll> {
+  if (!pendingConnect) {
+    return { status: 'error', message: 'No Gmail connection in progress' };
+  }
+
+  const poll = await oauthLoopback.pollLoopback();
+  if (poll.error) {
+    pendingConnect = null;
+    await oauthLoopback.cancelLoopback();
+    return { status: 'error', message: `Google sign-in failed: ${poll.error}` };
+  }
+  if (!poll.code) {
+    return { status: 'pending' };
+  }
+  if (poll.state !== pendingConnect.state) {
+    pendingConnect = null;
+    await oauthLoopback.cancelLoopback();
+    return {
+      status: 'error',
+      message: 'Google sign-in returned a mismatched state; try again',
+    };
+  }
+
+  const config = await requireConfig();
+  const token = await tokenRequest({
+    code: poll.code,
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    redirect_uri: redirectUri(pendingConnect.port),
+    grant_type: 'authorization_code',
+  });
+  pendingConnect = null;
+
+  if (!token.access_token || !token.refresh_token) {
+    return {
+      status: 'error',
+      message:
+        token.error_description ??
+        token.error ??
+        'Google did not return a refresh token',
+    };
+  }
+
+  await secureStore.setSecret(REFRESH_TOKEN_KEY, token.refresh_token);
+  cachedAccessToken = {
+    token: token.access_token,
+    expiresAt: Date.now() + ((token.expires_in ?? 3600) - 60) * 1000,
+  };
+  await setMeta('needs_reconnect', null);
+
+  const profile = (await gmailFetch('/profile')) as {
+    emailAddress?: string;
+  };
+  const email = profile.emailAddress ?? '';
+  await setMeta('email', email);
+  logger.log(`[email-receipts] connected Gmail account ${email}`);
+  return { status: 'completed', email };
+}
+
+export async function disconnectGmail(): Promise<void> {
+  await secureStore.removeSecret(REFRESH_TOKEN_KEY);
+  cachedAccessToken = null;
+  pendingConnect = null;
+  await setMeta('email', null);
+  await setMeta('needs_reconnect', null);
+}
+
+async function getAccessToken(): Promise<string> {
+  if (cachedAccessToken && cachedAccessToken.expiresAt > Date.now()) {
+    return cachedAccessToken.token;
+  }
+  const config = await requireConfig();
+  const refreshToken = await secureStore.getSecret(REFRESH_TOKEN_KEY);
+  if (!refreshToken) {
+    throw new Error('Gmail is not connected');
+  }
+  const token = await tokenRequest({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    refresh_token: refreshToken,
+    grant_type: 'refresh_token',
+  });
+  if (!token.access_token) {
+    if (token.error === 'invalid_grant') {
+      // Testing-status OAuth apps expire refresh tokens after ~7 days; the
+      // card shows Reconnect until Ben re-authorizes.
+      await setMeta('needs_reconnect', '1');
+      throw new Error(
+        'The Gmail authorization expired (Google test apps lapse weekly). ' +
+          'Use Reconnect on the Email Receipts card.',
+      );
+    }
+    throw new Error(
+      `Could not refresh the Gmail token: ${token.error_description ?? token.error ?? 'unknown error'}`,
+    );
+  }
+  cachedAccessToken = {
+    token: token.access_token,
+    expiresAt: Date.now() + ((token.expires_in ?? 3600) - 60) * 1000,
+  };
+  return token.access_token;
+}
+
+async function gmailFetch(path: string): Promise<unknown> {
+  let token = await getAccessToken();
+  let res = await fetch(`${GMAIL_API}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) {
+    cachedAccessToken = null;
+    token = await getAccessToken();
+    res = await fetch(`${GMAIL_API}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+  if (!res.ok) {
+    throw new Error(`Gmail request failed (${res.status}) for ${path}`);
+  }
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Message fetching + decoding
+// ---------------------------------------------------------------------------
+
+type GmailHeader = { name: string; value: string };
+type GmailPart = {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailPart[];
+};
+type GmailMessage = {
+  id: string;
+  threadId?: string;
+  payload?: GmailPart & { headers?: GmailHeader[] };
+};
+
+function decodeBase64Url(data: string): string {
+  const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(base64, 'base64').toString('utf8');
+}
+
+function findPart(
+  part: GmailPart | undefined,
+  mimeType: string,
+): string | null {
+  if (!part) {
+    return null;
+  }
+  if (part.mimeType === mimeType && part.body?.data) {
+    return decodeBase64Url(part.body.data);
+  }
+  for (const child of part.parts ?? []) {
+    const found = findPart(child, mimeType);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Prefer the text/plain part; fall back to de-tagged text/html. */
+export function decodeMessageBody(message: GmailMessage): string {
+  const plain = findPart(message.payload, 'text/plain');
+  if (plain) {
+    return plain;
+  }
+  const html = findPart(message.payload, 'text/html');
+  if (html) {
+    return stripHtml(html);
+  }
+  return '';
+}
+
+function getHeader(message: GmailMessage, name: string): string {
+  return (
+    message.payload?.headers?.find(
+      h => h.name.toLowerCase() === name.toLowerCase(),
+    )?.value ?? ''
+  );
+}
+
+function headerDateToDay(value: string): string | null {
+  const parsed = new Date(value);
+  if (isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
+const BODY_CAP = 64_000;
+
+function defaultGmailQuery(historyDays: number): string {
+  return (
+    `newer_than:${historyDays}d ` +
+    '(subject:(receipt OR order OR payment OR purchase OR invoice OR refund) ' +
+    'OR from:(doordash OR venmo OR google OR 1aauto OR iracing OR carfax ' +
+    'OR enterprise OR amazon OR paypal OR apple))'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sync pipeline
+// ---------------------------------------------------------------------------
+
+type MessageRow = {
+  message_id: string;
+  from_addr: string | null;
+  subject: string | null;
+  email_date: string | null;
+  classified: string;
+  body: string | null;
+};
+
+type ExtractionRow = {
+  message_id: string;
+  model: string | null;
+  output_json: string;
+  status: string;
+};
+
+function parseStoredReceipt(row: ExtractionRow): ReceiptExtraction | null {
+  return parseReceiptJson(row.output_json);
+}
+
+export async function syncEmailReceipts(): Promise<EmailReceiptsSyncResult> {
+  const config = await requireConfig();
+  const database = await getEmailDb();
+  const result: EmailReceiptsSyncResult = {
+    scanned: 0,
+    classifiedOut: 0,
+    extracted: 0,
+    quarantined: 0,
+    autoApplied: 0,
+    queuedForReview: 0,
+    unmatched: 0,
+    llmUnavailable: false,
+  };
+
+  // 1) List candidate messages.
+  const query = config.gmailQuery ?? defaultGmailQuery(config.historyDays);
+  const ids: string[] = [];
+  let pageToken: string | null = null;
+  while (ids.length < config.maxMessagesPerSync) {
+    const params = new URLSearchParams({
+      q: query,
+      maxResults: String(
+        Math.min(100, config.maxMessagesPerSync - ids.length),
+      ),
+    });
+    if (pageToken) {
+      params.set('pageToken', pageToken);
+    }
+    const page = (await gmailFetch(`/messages?${params.toString()}`)) as {
+      messages?: Array<{ id: string }>;
+      nextPageToken?: string;
+    };
+    ids.push(...(page.messages ?? []).map(m => m.id));
+    pageToken = page.nextPageToken ?? null;
+    if (!pageToken || (page.messages ?? []).length === 0) {
+      break;
+    }
+  }
+  result.scanned = ids.length;
+
+  // 2) Fetch + classify + persist new messages (idempotent on Gmail id).
+  for (const id of ids) {
+    const existing = first<{ message_id: string }>(
+      database,
+      'SELECT message_id FROM email_messages WHERE message_id = ?',
+      [id],
+    );
+    if (existing) {
+      continue;
+    }
+    const message = (await gmailFetch(
+      `/messages/${id}?format=full`,
+    )) as GmailMessage;
+    const from = getHeader(message, 'From');
+    const subject = getHeader(message, 'Subject');
+    const emailDate = headerDateToDay(getHeader(message, 'Date'));
+    const classified = classify(from, subject, {
+      allow: config.senderAllow,
+      deny: config.senderDeny,
+    });
+    const body =
+      classified === 'receipt'
+        ? decodeMessageBody(message).slice(0, BODY_CAP)
+        : null;
+    run(
+      database,
+      `INSERT INTO email_messages
+         (message_id, thread_id, from_addr, subject, email_date, classified, body)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        message.threadId ?? null,
+        from || null,
+        subject || null,
+        emailDate,
+        classified,
+        body,
+      ],
+    );
+    if (classified !== 'receipt') {
+      result.classifiedOut++;
+    }
+  }
+
+  // 3) Extract receipts that don't have an extraction yet, via the local
+  //    model. If the endpoint is down we skip the whole phase and retry next
+  //    sync - content never goes anywhere else.
+  const toExtract = all<MessageRow>(
+    database,
+    `SELECT m.* FROM email_messages m
+      LEFT JOIN extractions e ON e.message_id = m.message_id
+      WHERE m.classified = 'receipt' AND e.message_id IS NULL`,
+  );
+  for (const message of toExtract) {
+    if (!message.body || !message.body.trim()) {
+      run(
+        database,
+        `INSERT INTO extractions (message_id, model, output_json, status)
+         VALUES (?, ?, '{}', 'quarantined')`,
+        [message.message_id, config.llmModel],
+      );
+      result.quarantined++;
+      continue;
+    }
+    try {
+      const extraction = await extractReceipt(message.body, {
+        endpoint: config.llmEndpoint,
+        model: config.llmModel,
+      });
+      run(
+        database,
+        `INSERT INTO extractions (message_id, model, output_json, status)
+         VALUES (?, ?, ?, ?)`,
+        [
+          message.message_id,
+          config.llmModel,
+          JSON.stringify(extraction.receipt ?? {}),
+          extraction.status,
+        ],
+      );
+      if (extraction.status === 'ok') {
+        result.extracted++;
+      } else if (extraction.status === 'quarantined') {
+        result.quarantined++;
+      }
+    } catch (err) {
+      if (err instanceof LlmUnavailableError) {
+        logger.warn(
+          '[email-receipts] local model unavailable; skipping extraction until next sync',
+        );
+        result.llmUnavailable = true;
+        break;
+      }
+      throw err;
+    }
+  }
+
+  // 4) Match extractions that aren't settled yet against the ledger. This
+  //    also re-checks older receipts whose bank transaction may only have
+  //    posted since the last sync.
+  const toMatch = all<ExtractionRow>(
+    database,
+    `SELECT e.* FROM extractions e
+      WHERE e.status = 'ok'
+        AND NOT EXISTS (
+          SELECT 1 FROM match_proposals p
+           WHERE p.message_id = e.message_id
+             AND p.status IN ('applied', 'auto_applied')
+        )`,
+  );
+  for (const row of toMatch) {
+    const receipt = parseStoredReceipt(row);
+    if (!receipt) {
+      continue;
+    }
+    const candidates = await findCandidates(row.message_id, receipt);
+    const existingProposals = all<{ id: number }>(
+      database,
+      `SELECT id FROM match_proposals WHERE message_id = ? AND status = 'review'`,
+      [row.message_id],
+    );
+
+    if (candidates.length === 0) {
+      if (existingProposals.length === 0) {
+        result.unmatched++;
+      }
+      continue;
+    }
+
+    // The deliberately narrow auto-apply gate: exactly one ledger transaction
+    // matches on exact signed amount in the window, extraction passed
+    // quarantine (status ok), nothing about this receipt was queued before,
+    // and the transaction isn't reconciled. Everything else goes to review.
+    if (
+      candidates.length === 1 &&
+      existingProposals.length === 0 &&
+      !candidates[0].reconciled
+    ) {
+      const proposalId = await recordProposal(
+        row.message_id,
+        candidates[0],
+        'review',
+      );
+      await applyProposal(proposalId, receipt, { auto: true });
+      result.autoApplied++;
+    } else {
+      let queued = false;
+      for (const candidate of candidates) {
+        await recordProposal(row.message_id, candidate, 'review');
+        queued = true;
+      }
+      if (queued && existingProposals.length === 0) {
+        result.queuedForReview++;
+      }
+    }
+  }
+
+  await setMeta('last_sync', new Date().toISOString());
+  logger.log(
+    `[email-receipts] sync: ${result.scanned} scanned, ` +
+      `${result.extracted} extracted, ${result.autoApplied} auto-applied, ` +
+      `${result.queuedForReview} queued, ${result.unmatched} unmatched` +
+      (result.llmUnavailable ? ' (local model offline)' : ''),
+  );
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Status + review queue
+// ---------------------------------------------------------------------------
+
+export async function getEmailReceiptsStatus(): Promise<EmailReceiptsStatus> {
+  const available = await secureStore.isAvailable();
+  const fileConfig = available ? await readConfigFile() : null;
+  const llmEndpoint = fileConfig?.llmEndpoint ?? DEFAULT_LLM_ENDPOINT;
+  const llmModel = fileConfig?.llmModel ?? DEFAULT_LLM_MODEL;
+
+  if (!available) {
+    return {
+      available: false,
+      configured: false,
+      connected: false,
+      needsReconnect: false,
+      email: null,
+      llm: { endpoint: llmEndpoint, model: llmModel, connected: false },
+      pendingReview: 0,
+      lastSync: null,
+    };
+  }
+
+  const config = await getConfig();
+  const refreshToken = config
+    ? await secureStore.getSecret(REFRESH_TOKEN_KEY)
+    : null;
+  const needsReconnect = (await getMeta('needs_reconnect')) === '1';
+  const email = await getMeta('email');
+  const lastSync = await getMeta('last_sync');
+
+  const database = await getEmailDb();
+  const pendingRow = first<{ count: number }>(
+    database,
+    `SELECT COUNT(*) AS count FROM extractions e
+      WHERE e.status = 'ok'
+        AND NOT EXISTS (
+          SELECT 1 FROM match_proposals p
+           WHERE p.message_id = e.message_id
+             AND p.status IN ('applied', 'auto_applied')
+        )`,
+  );
+
+  return {
+    available,
+    configured: config != null,
+    connected: refreshToken != null && !needsReconnect,
+    needsReconnect: refreshToken != null && needsReconnect,
+    email,
+    llm: {
+      endpoint: llmEndpoint,
+      model: llmModel,
+      connected: await pingLlm(llmEndpoint),
+    },
+    pendingReview: pendingRow?.count ?? 0,
+    lastSync,
+  };
+}
+
+async function proposalTransactions(
+  transactionIds: string[],
+): Promise<
+  Map<string, { date: string; amount: number; payee_name: string | null }>
+> {
+  if (transactionIds.length === 0) {
+    return new Map();
+  }
+  const { data } = await aqlQuery(
+    q('transactions')
+      .filter({ id: { $oneof: transactionIds } })
+      .select(['id', 'date', 'amount', { payee_name: 'payee.name' }])
+      .options({ splits: 'grouped' }),
+  );
+  return new Map(
+    (
+      data as Array<{
+        id: string;
+        date: string;
+        amount: number;
+        payee_name: string | null;
+      }>
+    ).map(t => [t.id, t]),
+  );
+}
+
+export async function getReviewItems(): Promise<{
+  pending: EmailReviewItem[];
+  applied: EmailReviewItem[];
+}> {
+  const database = await getEmailDb();
+
+  const rows = all<ExtractionRow & MessageRow>(
+    database,
+    `SELECT e.message_id, e.model, e.output_json, e.status,
+            m.from_addr, m.subject, m.email_date
+       FROM extractions e
+       JOIN email_messages m ON m.message_id = e.message_id
+      WHERE e.status = 'ok'
+      ORDER BY m.email_date DESC`,
+  );
+
+  const proposalRows = all<{
+    id: number;
+    message_id: string;
+    transaction_id: string;
+    score: number;
+    merchant_score: number;
+    date_gap_days: number;
+    status: string;
+    applied_split: number;
+    snapshot_json: string | null;
+    created_at: string;
+    applied_at: string | null;
+  }>(
+    database,
+    `SELECT * FROM match_proposals WHERE status IN ('review', 'applied', 'auto_applied')`,
+  );
+
+  const transactions = await proposalTransactions(
+    proposalRows.map(p => p.transaction_id),
+  );
+
+  const byMessage = new Map<string, EmailMatchProposal[]>();
+  for (const row of proposalRows) {
+    const list = byMessage.get(row.message_id) ?? [];
+    list.push(
+      toEmailMatchProposal(row, transactions.get(row.transaction_id) ?? null),
+    );
+    byMessage.set(row.message_id, list);
+  }
+
+  const pending: EmailReviewItem[] = [];
+  const applied: EmailReviewItem[] = [];
+  for (const row of rows) {
+    const receipt = parseStoredReceipt(row);
+    if (!receipt) {
+      continue;
+    }
+    const proposals = byMessage.get(row.message_id) ?? [];
+    const item: EmailReviewItem = {
+      messageId: row.message_id,
+      from: row.from_addr,
+      subject: row.subject,
+      emailDate: row.email_date,
+      receipt,
+      proposals,
+    };
+    if (
+      proposals.some(
+        p => p.status === 'applied' || p.status === 'auto_applied',
+      )
+    ) {
+      applied.push(item);
+    } else {
+      pending.push(item);
+    }
+  }
+  return { pending, applied };
+}
+
+export async function applyMatch({
+  proposalId,
+}: {
+  proposalId: number;
+}): Promise<void> {
+  const database = await getEmailDb();
+  const proposal = first<{ message_id: string }>(
+    database,
+    'SELECT message_id FROM match_proposals WHERE id = ?',
+    [proposalId],
+  );
+  if (!proposal) {
+    throw new Error(`No match proposal ${proposalId}`);
+  }
+  const extraction = first<ExtractionRow>(
+    database,
+    'SELECT * FROM extractions WHERE message_id = ?',
+    [proposal.message_id],
+  );
+  const receipt = extraction ? parseStoredReceipt(extraction) : null;
+  if (!receipt) {
+    throw new Error('The extraction for this match is no longer readable');
+  }
+  await applyProposal(proposalId, receipt);
+}
+
+export async function rejectMatch({
+  proposalId,
+  messageId,
+}: {
+  proposalId?: number;
+  messageId?: string;
+}): Promise<void> {
+  if (proposalId != null) {
+    await rejectProposal(proposalId);
+    return;
+  }
+  if (messageId) {
+    // An unmatched receipt (zero candidates) is dismissed by marking its
+    // extraction; the stored row keeps it dismissed across re-syncs.
+    const database = await getEmailDb();
+    run(
+      database,
+      `UPDATE extractions SET status = 'dismissed' WHERE message_id = ?`,
+      [messageId],
+    );
+  }
+}
+
+export async function unapplyMatch({
+  proposalId,
+}: {
+  proposalId: number;
+}): Promise<void> {
+  await unapplyProposal(proposalId);
+}

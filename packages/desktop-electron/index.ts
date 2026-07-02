@@ -136,6 +136,61 @@ if (isDev) {
   process.traceProcessWarnings = true;
 }
 
+// Loopback listener for OAuth authorization-code redirects (the Email
+// Receipts Gmail connect). It lives here because the loot-core server runs
+// in a utility process that shouldn't own sockets; the server drives it over
+// the same parentPort bridge the secure store uses (oauth-loopback-request /
+// -response). Bound to an ephemeral 127.0.0.1 port - Google's desktop-app
+// clients accept any loopback port.
+let oauthLoopback: {
+  server: Server;
+  port: number;
+  code: string | null;
+  state: string | null;
+  error: string | null;
+} | null = null;
+
+const startOAuthLoopback = () =>
+  new Promise<number>((resolve, reject) => {
+    if (oauthLoopback) {
+      oauthLoopback.server.close();
+      oauthLoopback = null;
+    }
+    const server = createServer((req, res) => {
+      const query = new URL(req.url || '', 'http://127.0.0.1').searchParams;
+      const code = query.get('code');
+      const error = query.get('error');
+      if (oauthLoopback && (code || error)) {
+        oauthLoopback.code = code;
+        oauthLoopback.state = query.get('state');
+        oauthLoopback.error = error;
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end(
+          code
+            ? 'Connected! You can close this tab and return to Bread Chaser.'
+            : `Sign-in failed: ${error}. You can close this tab.`,
+        );
+        server.close();
+      } else {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not found.');
+      }
+    });
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port =
+        address && typeof address === 'object' ? address.port : null;
+      if (port === null) {
+        server.close();
+        reject(new Error('Could not determine the loopback port'));
+        return;
+      }
+      oauthLoopback = { server, port, code: null, state: null, error: null };
+      resolve(port);
+    });
+  });
+
 async function loadGlobalPrefs() {
   let state: GlobalPrefsJson = {};
   try {
@@ -226,6 +281,49 @@ async function createBackgroundProcess() {
           result,
           error,
         });
+        break;
+      }
+      case 'oauth-loopback-request': {
+        const { id, op } = msg;
+        const respond = (
+          result: string | number | boolean | null,
+          error: string | null = null,
+        ) =>
+          serverProcess?.postMessage({
+            type: 'oauth-loopback-response',
+            id,
+            result,
+            error,
+          });
+        if (op === 'start') {
+          startOAuthLoopback().then(
+            port => respond(port),
+            err =>
+              respond(null, err instanceof Error ? err.message : String(err)),
+          );
+        } else if (op === 'poll') {
+          if (oauthLoopback && (oauthLoopback.code || oauthLoopback.error)) {
+            respond(
+              JSON.stringify({
+                code: oauthLoopback.code,
+                state: oauthLoopback.state,
+                error: oauthLoopback.error,
+              }),
+            );
+            // Delivered exactly once; the listener socket is already closed.
+            oauthLoopback = null;
+          } else {
+            respond(null);
+          }
+        } else if (op === 'cancel') {
+          if (oauthLoopback) {
+            oauthLoopback.server.close();
+            oauthLoopback = null;
+          }
+          respond(true);
+        } else {
+          respond(null, 'Unknown oauth-loopback op: ' + op);
+        }
         break;
       }
       case 'reply':

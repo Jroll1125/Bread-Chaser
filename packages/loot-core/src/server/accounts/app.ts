@@ -38,6 +38,8 @@ import type {
   TransactionEntity,
 } from '#types/models';
 
+import * as emailReceipts from '#server/email/receipts';
+
 import * as link from './link';
 import { getStartingBalancePayee } from './payees';
 import * as plaid from './plaid';
@@ -62,6 +64,15 @@ export type AccountHandlers = {
   'plaid-create-link-token': typeof plaidCreateLinkToken;
   'plaid-poll-link': typeof pollPlaidLink;
   'plaid-sandbox-link': typeof plaidSandboxLink;
+  'email-receipts-status': typeof emailReceiptsStatus;
+  'email-receipts-connect': typeof emailReceiptsConnect;
+  'email-receipts-poll-connect': typeof emailReceiptsPollConnect;
+  'email-receipts-sync': typeof emailReceiptsSync;
+  'email-receipts-proposals': typeof emailReceiptsProposals;
+  'email-receipts-apply': typeof emailReceiptsApply;
+  'email-receipts-reject': typeof emailReceiptsReject;
+  'email-receipts-unapply': typeof emailReceiptsUnapply;
+  'email-receipts-disconnect': typeof emailReceiptsDisconnect;
   'pluggyai-accounts-link': typeof linkPluggyAiAccount;
   'akahu-accounts-link': typeof linkAkahuAccount;
   'enablebanking-accounts-link': typeof linkEnableBankingAccount;
@@ -404,6 +415,64 @@ async function plaidSandboxLink(
   }
   const item = await plaid.createSandboxItem(institutionId);
   return linkPlaidItem(item);
+}
+
+async function emailReceiptsStatus() {
+  return emailReceipts.getEmailReceiptsStatus();
+}
+
+async function emailReceiptsConnect() {
+  return emailReceipts.startGmailConnect();
+}
+
+async function emailReceiptsPollConnect() {
+  return emailReceipts.pollGmailConnect();
+}
+
+async function emailReceiptsSync() {
+  const result = await emailReceipts.syncEmailReceipts();
+  if (result.autoApplied > 0) {
+    connection.send('sync-event', {
+      type: 'success',
+      tables: ['transactions'],
+    });
+  }
+  return result;
+}
+
+async function emailReceiptsProposals() {
+  return emailReceipts.getReviewItems();
+}
+
+async function emailReceiptsApply(args: { proposalId: number }) {
+  await emailReceipts.applyMatch(args);
+  connection.send('sync-event', {
+    type: 'success',
+    tables: ['transactions'],
+  });
+  return 'ok' as const;
+}
+
+async function emailReceiptsReject(args: {
+  proposalId?: number;
+  messageId?: string;
+}) {
+  await emailReceipts.rejectMatch(args);
+  return 'ok' as const;
+}
+
+async function emailReceiptsUnapply(args: { proposalId: number }) {
+  await emailReceipts.unapplyMatch(args);
+  connection.send('sync-event', {
+    type: 'success',
+    tables: ['transactions'],
+  });
+  return 'ok' as const;
+}
+
+async function emailReceiptsDisconnect() {
+  await emailReceipts.disconnectGmail();
+  return 'ok' as const;
 }
 
 async function linkPluggyAiAccount({
@@ -1840,6 +1909,15 @@ app.method('plaid-status', plaidStatus);
 app.method('plaid-create-link-token', plaidCreateLinkToken);
 app.method('plaid-poll-link', pollPlaidLink);
 app.method('plaid-sandbox-link', plaidSandboxLink);
+app.method('email-receipts-status', emailReceiptsStatus);
+app.method('email-receipts-connect', emailReceiptsConnect);
+app.method('email-receipts-poll-connect', emailReceiptsPollConnect);
+app.method('email-receipts-sync', mutator(undoable(emailReceiptsSync)));
+app.method('email-receipts-proposals', emailReceiptsProposals);
+app.method('email-receipts-apply', mutator(undoable(emailReceiptsApply)));
+app.method('email-receipts-reject', emailReceiptsReject);
+app.method('email-receipts-unapply', mutator(undoable(emailReceiptsUnapply)));
+app.method('email-receipts-disconnect', emailReceiptsDisconnect);
 app.method('pluggyai-accounts-link', linkPluggyAiAccount);
 app.method('akahu-accounts-link', linkAkahuAccount);
 app.method('enablebanking-accounts-link', linkEnableBankingAccount);
