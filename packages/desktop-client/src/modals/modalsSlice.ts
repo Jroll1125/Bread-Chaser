@@ -124,6 +124,18 @@ export type Modal =
       };
     }
   | {
+      name: 'email-receipts-connect';
+      options: {
+        onSuccess: (email: string) => void;
+      };
+    }
+  | {
+      name: 'email-receipts-review';
+      options: {
+        onChange?: () => void;
+      };
+    }
+  | {
       name: 'simplefin-init';
       options: {
         onSuccess: () => void;

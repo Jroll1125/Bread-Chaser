@@ -6,6 +6,7 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
 import { BankSyncCard } from '#components/breadchaser/BankSyncCard';
+import { EmailReceiptsCard } from '#components/breadchaser/EmailReceiptsCard';
 import { Page } from '#components/Page';
 
 type PillarStatus = 'in-progress' | 'planned';
@@ -76,13 +77,7 @@ export function BreadChaserPage() {
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 15 }}>
           <BankSyncCard />
-          <PillarCard
-            title={t('Email receipts')}
-            description={t(
-              'Forward receipts to a private address and they attach to the right transactions.',
-            )}
-            status="in-progress"
-          />
+          <EmailReceiptsCard />
           <PillarCard
             title={t('Dedup review')}
             description={t(

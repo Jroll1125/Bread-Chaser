@@ -37,6 +37,8 @@ import { EditUserAccess } from './modals/EditAccess';
 import { EditFieldModal } from './modals/EditFieldModal';
 import { EditRuleModal } from './modals/EditRuleModal';
 import { EditUserFinanceApp } from './modals/EditUser';
+import { EmailReceiptsConnectModal } from './modals/EmailReceiptsConnectModal';
+import { EmailReceiptsReviewModal } from './modals/EmailReceiptsReviewModal';
 import { EnableBankingExternalMsgModal } from './modals/EnableBankingExternalMsgModal';
 import { EnableBankingInitialiseModal } from './modals/EnableBankingInitialiseModal';
 import { EnvelopeBalanceMenuModal } from './modals/EnvelopeBalanceMenuModal';
@@ -187,6 +189,12 @@ export function Modals() {
 
         case 'plaid-link':
           return <PlaidLinkModal key={key} {...modal.options} />;
+
+        case 'email-receipts-connect':
+          return <EmailReceiptsConnectModal key={key} {...modal.options} />;
+
+        case 'email-receipts-review':
+          return <EmailReceiptsReviewModal key={key} {...modal.options} />;
 
         case 'simplefin-init':
           return <SimpleFinInitialiseModal key={key} {...modal.options} />;
