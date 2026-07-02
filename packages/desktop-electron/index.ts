@@ -583,7 +583,7 @@ function isExternalUrl(url: string) {
   return !url.includes('localhost:') && !url.includes('app://');
 }
 
-app.setAppUserModelId('com.rockrunindustries.breadchaser');
+app.setAppUserModelId('com.breadchaser.app');
 
 app.on('ready', async () => {
   // Install an `app://` protocol that always returns the base HTML

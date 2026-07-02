@@ -32,7 +32,7 @@
     "typescript-strict-plugin": "^2.4.4"
   },
   "build": {
-    "appId": "com.rockrunindustries.breadchaser",
+    "appId": "com.breadchaser.app",
     "files": [
       "build",
       "!node_modules/@actual-app/web",
