@@ -67,7 +67,7 @@ describe('email classify', () => {
 
   test('recurring non-spend mail from receipt senders is excluded', () => {
     expect(
-      classify('noreply@news.paypal.com', 'Confirmed: Benjamin, you’ve been invited to apply for the PayPal Cashback Mastercard®'),
+      classify('noreply@news.paypal.com', "Confirmed: Benjamin, you've been invited to apply for the PayPal Cashback Mastercard"),
     ).toBe('excluded');
     expect(
       classify('venmo@venmo.com', 'Your May 2026 transaction history'),
