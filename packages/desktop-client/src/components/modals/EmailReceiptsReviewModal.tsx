@@ -172,7 +172,7 @@ export const EmailReceiptsReviewModal = ({
             )}
 
             {pending.length > 0 && (
-              <View style={{ gap: 10 }}>
+              <View style={{ gap: 10, flexShrink: 0 }}>
                 <Text style={{ fontWeight: 600, color: theme.pageText }}>
                   <Trans>Needs review</Trans>
                 </Text>
@@ -184,6 +184,7 @@ export const EmailReceiptsReviewModal = ({
                       borderRadius: 6,
                       padding: 10,
                       gap: 8,
+                      flexShrink: 0,
                     }}
                   >
                     <ReceiptSummary item={item} />
@@ -244,7 +245,7 @@ export const EmailReceiptsReviewModal = ({
             )}
 
             {applied.length > 0 && (
-              <View style={{ gap: 10 }}>
+              <View style={{ gap: 10, flexShrink: 0 }}>
                 <Text style={{ fontWeight: 600, color: theme.pageText }}>
                   <Trans>Applied</Trans>
                 </Text>
@@ -266,6 +267,7 @@ export const EmailReceiptsReviewModal = ({
                         border: `1px solid ${theme.tableBorder}`,
                         borderRadius: 6,
                         padding: 10,
+                        flexShrink: 0,
                       }}
                     >
                       <View style={{ gap: 2 }}>
