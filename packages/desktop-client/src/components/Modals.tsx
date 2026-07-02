@@ -82,6 +82,7 @@ import { TrackingBalanceMenuModal } from './modals/TrackingBalanceMenuModal';
 import { TrackingBudgetMenuModal } from './modals/TrackingBudgetMenuModal';
 import { TrackingBudgetMonthMenuModal } from './modals/TrackingBudgetMonthMenuModal';
 import { TrackingBudgetSummaryModal } from './modals/TrackingBudgetSummaryModal';
+import { TransactionAttachmentsModal } from './modals/TransactionAttachmentsModal';
 import { TransferModal } from './modals/TransferModal';
 import { TransferOwnership } from './modals/TransferOwnership';
 import { UnmigrateBudgetAutomationsModal } from './modals/UnmigrateBudgetAutomationsModal';
@@ -199,6 +200,9 @@ export function Modals() {
 
         case 'email-receipts-review':
           return <EmailReceiptsReviewModal key={key} {...modal.options} />;
+
+        case 'transaction-attachments':
+          return <TransactionAttachmentsModal key={key} {...modal.options} />;
 
         case 'simplefin-init':
           return <SimpleFinInitialiseModal key={key} {...modal.options} />;

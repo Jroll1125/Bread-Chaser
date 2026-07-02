@@ -71,6 +71,10 @@ contextBridge.exposeInMainWorld('Actual', {
     void ipcRenderer.invoke('open-in-file-manager', filepath);
   },
 
+  openPathInDefaultApp: (filepath: string) => {
+    return ipcRenderer.invoke('open-path-in-default-app', filepath);
+  },
+
   onEventFromMain: (type: string, handler: (...args: unknown[]) => void) => {
     ipcRenderer.on(type, handler);
   },

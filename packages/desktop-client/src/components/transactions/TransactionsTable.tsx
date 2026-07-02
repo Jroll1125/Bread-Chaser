@@ -31,6 +31,7 @@ import {
 import {
   SvgArrowDown,
   SvgArrowUp,
+  SvgAttachment,
   SvgCheveronDown,
 } from '@actual-app/components/icons/v1';
 import {
@@ -103,6 +104,7 @@ import type {
   TableNavigator,
   TableProps,
 } from '#components/table';
+import { useAttachedTransactionIds } from '#hooks/useAttachedTransactionIds';
 import {
   SchedulesProvider,
   useCachedSchedules,
@@ -590,6 +592,7 @@ function PayeeCell({
             onNavigateToTransferAccount={onNavigateToTransferAccount}
             onNavigateToSchedule={onNavigateToSchedule}
           />
+          <AttachmentIcon transactionId={transaction.id} />
           <SvgSplit
             style={{
               color: 'inherit',
@@ -686,6 +689,7 @@ function PayeeCell({
               onNavigateToTransferAccount={onNavigateToTransferAccount}
               onNavigateToSchedule={onNavigateToSchedule}
             />
+            <AttachmentIcon transactionId={transaction.id} />
             <div
               style={{
                 overflow: 'hidden',
@@ -762,6 +766,43 @@ const payeeIconButtonStyle = {
 };
 const scheduleIconStyle = { width: 13, height: 13 };
 const transferIconStyle = { width: 10, height: 10 };
+
+type AttachmentIconProps = {
+  transactionId: TransactionEntity['id'];
+};
+
+function AttachmentIcon({ transactionId }: AttachmentIconProps) {
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
+  const attachedIds = useAttachedTransactionIds();
+
+  if (!attachedIds.has(transactionId)) {
+    return null;
+  }
+
+  return (
+    <Button
+      variant="bare"
+      data-testid="attachment-icon"
+      aria-label={t('View attachments')}
+      style={payeeIconButtonStyle}
+      onPress={() => {
+        if (!isTemporaryId(transactionId)) {
+          dispatch(
+            pushModal({
+              modal: {
+                name: 'transaction-attachments',
+                options: { transactionId },
+              },
+            }),
+          );
+        }
+      }}
+    >
+      <SvgAttachment style={scheduleIconStyle} />
+    </Button>
+  );
+}
 
 type PayeeIconsProps = {
   transaction: SerializedTransaction;

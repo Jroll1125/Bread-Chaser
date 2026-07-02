@@ -18,6 +18,9 @@ type Actual = {
   ACTUAL_VERSION: string;
   openURLInBrowser: (url: string) => void;
   openInFileManager: (filepath: string) => void;
+  // Electron only: opens a file with the OS default application. Resolves
+  // to '' on success or an error message (shell.openPath semantics).
+  openPathInDefaultApp?: (filepath: string) => Promise<string>;
   saveFile: (
     contents: string | Buffer,
     filename: string,

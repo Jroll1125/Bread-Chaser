@@ -177,6 +177,16 @@ export function TransactionMenu({
           case 'view-schedule':
             onViewSchedule();
             break;
+          case 'attachments':
+            dispatch(
+              pushModal({
+                modal: {
+                  name: 'transaction-attachments',
+                  options: { transactionId: selectedIds[0] },
+                },
+              }),
+            );
+            break;
           case 'link-schedule':
             onLinkSchedule(selectedIds);
             break;
@@ -214,6 +224,9 @@ export function TransactionMenu({
                 ? []
                 : [{ name: 'duplicate', text: t('Duplicate') }]),
               { name: 'delete', text: t('Delete') },
+              ...(selectedIds.length === 1
+                ? [{ name: 'attachments', text: t('Attachments') }]
+                : []),
               ...(linked
                 ? [
                     ...(selectedIds.length === 1

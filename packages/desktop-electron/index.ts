@@ -769,6 +769,11 @@ ipcMain.handle('open-in-file-manager', (event, filepath) => {
   shell.showItemInFolder(filepath);
 });
 
+ipcMain.handle('open-path-in-default-app', (event, filepath) => {
+  // Resolves to '' on success or an error message.
+  return shell.openPath(filepath);
+});
+
 ipcMain.on('message', (_event, msg) => {
   if (!serverProcess) {
     return;

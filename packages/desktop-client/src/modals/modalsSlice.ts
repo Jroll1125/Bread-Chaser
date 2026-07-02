@@ -142,6 +142,12 @@ export type Modal =
       };
     }
   | {
+      name: 'transaction-attachments';
+      options: {
+        transactionId: TransactionEntity['id'];
+      };
+    }
+  | {
       name: 'simplefin-init';
       options: {
         onSuccess: () => void;
