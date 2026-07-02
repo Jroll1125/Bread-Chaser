@@ -770,8 +770,12 @@ ipcMain.handle('open-in-file-manager', (event, filepath) => {
 });
 
 ipcMain.handle('open-path-in-default-app', (event, filepath) => {
-  // Resolves to '' on success or an error message.
-  return shell.openPath(filepath);
+  // shell.openPath requires an absolute path. In dev, ACTUAL_DATA_DIR is
+  // relative ("../../data"), so the cached attachment path arrives relative
+  // and Windows returns "Failed to open path". Resolve it here (a no-op when
+  // already absolute, as it is in production). The loot-core utility process
+  // shares this process's cwd, so relative paths resolve to the same place.
+  return shell.openPath(path.resolve(filepath));
 });
 
 ipcMain.on('message', (_event, msg) => {
