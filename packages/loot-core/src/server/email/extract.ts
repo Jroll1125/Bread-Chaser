@@ -77,17 +77,38 @@ const RECEIPT_JSON_SCHEMA = {
     },
     category_hint: { type: ['string', 'null'] },
   },
-  required: ['is_receipt'],
+  // Every key required, not just is_receipt: a JSON-schema-constrained model
+  // will happily omit optional keys even when it correctly recognizes a
+  // receipt - observed against real mail as is_receipt=true, date/order_id/
+  // line_items filled in, but merchant and amount_cents (the two fields the
+  // quarantine gate needs most) silently missing. Forcing every key present
+  // makes the model actually attempt them; nullable/defaultable fields still
+  // accept '' or null when there's truly nothing to report.
+  required: [
+    'is_receipt',
+    'direction',
+    'merchant',
+    'amount_cents',
+    'currency',
+    'date',
+    'order_id',
+    'line_items',
+    'category_hint',
+  ],
 };
 
 const PROMPT =
-  'Extract the receipt/order from the email below into JSON. Amounts are ' +
-  'INTEGER CENTS. If the email is NOT a receipt, order, charge, or refund ' +
-  'confirmation (e.g. marketing, newsletter, shipping-only update, ' +
-  'brokerage trade confirmation), set is_receipt=false and leave the other ' +
-  'fields empty - do NOT invent values. Use direction="refund" when money ' +
-  'is returning to the user. date is YYYY-MM-DD. Include line_items only ' +
-  'when the email itemizes individual charges. Email body:\n\n';
+  'Extract the receipt/order from the email below into JSON. is_receipt is ' +
+  'true for ANY actual charge, order, subscription renewal, or refund ' +
+  'confirmation - not just one-time purchases. Amounts are INTEGER CENTS. ' +
+  'merchant and amount_cents (the order TOTAL) are ALWAYS required when ' +
+  'is_receipt is true - never leave them blank. If the email is NOT a ' +
+  'receipt/charge/order/refund (marketing, newsletter, shipping-only ' +
+  'update, brokerage trade confirmation), set is_receipt=false and leave ' +
+  'the other fields empty - do NOT invent values. Use direction="refund" ' +
+  'when money is returning to the user. date is YYYY-MM-DD. Include ' +
+  'line_items only when the email itemizes individual charges. Email ' +
+  'body:\n\n';
 
 const LLM_INPUT_CAP = 12_000;
 const LLM_TIMEOUT_MS = 120_000;
