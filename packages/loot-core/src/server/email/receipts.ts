@@ -68,6 +68,11 @@ type EmailReceiptsConfigFile = {
   llmModel?: string;
   historyDays?: number;
   maxMessagesPerSync?: number;
+  // Off by default: Ben wants to see everything land in review before it
+  // touches the ledger while he builds trust in the matcher. Toggled from
+  // the Email Receipts card; when on, the narrow slam-dunk gate in
+  // syncEmailReceipts still applies on top of this.
+  autoApply?: boolean;
 };
 
 type EmailReceiptsConfig = {
@@ -80,6 +85,7 @@ type EmailReceiptsConfig = {
   llmModel: string;
   historyDays: number;
   maxMessagesPerSync: number;
+  autoApply: boolean;
 };
 
 function getConfigPath(): string {
@@ -149,14 +155,29 @@ export async function configureEmailReceipts({
     throw new Error('Both the client ID and client secret are required.');
   }
 
+  await writeConfigFile({ clientId: trimmedId });
+  await secureStore.setSecret(CLIENT_SECRET_KEY, trimmedSecret);
+}
+
+/** Merges a patch into email-receipts.json, always stripping the transient clientSecret field. */
+async function writeConfigFile(
+  patch: Partial<EmailReceiptsConfigFile>,
+): Promise<void> {
   const existing = (await readConfigFile()) ?? {};
-  // Drop any stray plaintext secret from the file; the secure store owns it.
   const { clientSecret: _drop, ...rest } = existing;
   await lootFs.writeFile(
     getConfigPath(),
-    JSON.stringify({ ...rest, clientId: trimmedId }, null, 2),
+    JSON.stringify({ ...rest, ...patch }, null, 2),
   );
-  await secureStore.setSecret(CLIENT_SECRET_KEY, trimmedSecret);
+}
+
+/**
+ * Whether an unambiguous receipt match applies itself automatically or
+ * always waits in the review queue. Off by default - a personal-finance app
+ * shouldn't touch the ledger unsupervised until its owner trusts it.
+ */
+export async function setAutoApply(autoApply: boolean): Promise<void> {
+  await writeConfigFile({ autoApply });
 }
 
 async function getConfig(): Promise<EmailReceiptsConfig | null> {
@@ -175,6 +196,7 @@ async function getConfig(): Promise<EmailReceiptsConfig | null> {
     llmModel: fileConfig.llmModel ?? DEFAULT_LLM_MODEL,
     historyDays: fileConfig.historyDays ?? DEFAULT_HISTORY_DAYS,
     maxMessagesPerSync: fileConfig.maxMessagesPerSync ?? DEFAULT_MAX_MESSAGES,
+    autoApply: fileConfig.autoApply ?? false,
   };
 }
 
@@ -652,7 +674,10 @@ export async function syncEmailReceipts(): Promise<EmailReceiptsSyncResult> {
     // matches on exact signed amount in the window, extraction passed
     // quarantine (status ok), nothing about this receipt was queued before,
     // and the transaction isn't reconciled. Everything else goes to review.
+    // config.autoApply is the master switch (off by default) - even a
+    // slam-dunk match only applies itself once the user has opted in.
     if (
+      config.autoApply &&
       candidates.length === 1 &&
       existingProposals.length === 0 &&
       !candidates[0].reconciled
@@ -706,6 +731,7 @@ export async function getEmailReceiptsStatus(): Promise<EmailReceiptsStatus> {
       llm: { endpoint: llmEndpoint, model: llmModel, connected: false },
       pendingReview: 0,
       lastSync: null,
+      autoApply: fileConfig?.autoApply ?? false,
     };
   }
 
@@ -753,6 +779,7 @@ export async function getEmailReceiptsStatus(): Promise<EmailReceiptsStatus> {
     },
     pendingReview: pendingRow?.count ?? 0,
     lastSync,
+    autoApply: config?.autoApply ?? false,
   };
 }
 

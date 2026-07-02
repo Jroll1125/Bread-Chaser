@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { Button, ButtonWithLoading } from '@actual-app/components/button';
 import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
+import { Toggle } from '@actual-app/components/toggle';
 import { View } from '@actual-app/components/view';
 import { send } from '@actual-app/core/platform/client/connection';
 import type { EmailReceiptsStatus } from '@actual-app/core/types/models';
@@ -91,6 +92,18 @@ export function EmailReceiptsCard() {
         },
       }),
     );
+  };
+
+  const onToggleAutoApply = async (autoApply: boolean) => {
+    // Optimistic: flip immediately so the toggle doesn't feel laggy, then
+    // reconcile with the server (which is the source of truth on refresh).
+    setStatus(prev => (prev ? { ...prev, autoApply } : prev));
+    try {
+      await send('email-receipts-set-auto-apply', { autoApply });
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+    refreshStatus();
   };
 
   const onSyncNow = async () => {
@@ -186,6 +199,33 @@ export function EmailReceiptsCard() {
                 })
               : t('Never synced')}
           </Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              paddingTop: 4,
+            }}
+          >
+            <Text style={{ color: theme.pageTextSubdued }}>
+              <Trans>Auto-apply exact matches</Trans>
+            </Text>
+            <Toggle
+              id="email-receipts-auto-apply"
+              isOn={status.autoApply}
+              onToggle={value => {
+                void onToggleAutoApply(value);
+              }}
+            />
+          </View>
+          {!status.autoApply && (
+            <Text style={{ color: theme.pageTextSubdued, fontSize: 12 }}>
+              <Trans>
+                Off - every match waits in Review, even exact ones.
+              </Trans>
+            </Text>
+          )}
         </View>
       )}
 
@@ -206,6 +246,11 @@ export function EmailReceiptsCard() {
             ) : (
               <Trans>Connect Gmail</Trans>
             )}
+          </Button>
+        )}
+        {status?.available && status.configured && (
+          <Button onPress={onSetUp}>
+            <Trans>Edit credentials</Trans>
           </Button>
         )}
         {status?.connected && (

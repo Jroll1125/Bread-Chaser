@@ -16,6 +16,9 @@ export type EmailReceiptsStatus = {
   };
   pendingReview: number;
   lastSync: string | null;
+  // Off by default: exact single-candidate matches wait in the review queue
+  // instead of applying themselves until this is turned on.
+  autoApply: boolean;
 };
 
 export type EmailReceiptLineItem = {

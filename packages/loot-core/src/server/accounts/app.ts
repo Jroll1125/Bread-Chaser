@@ -66,6 +66,7 @@ export type AccountHandlers = {
   'plaid-sandbox-link': typeof plaidSandboxLink;
   'email-receipts-status': typeof emailReceiptsStatus;
   'email-receipts-configure': typeof emailReceiptsConfigure;
+  'email-receipts-set-auto-apply': typeof emailReceiptsSetAutoApply;
   'email-receipts-connect': typeof emailReceiptsConnect;
   'email-receipts-poll-connect': typeof emailReceiptsPollConnect;
   'email-receipts-sync': typeof emailReceiptsSync;
@@ -427,6 +428,15 @@ async function emailReceiptsConfigure(args: {
   clientSecret: string;
 }) {
   await emailReceipts.configureEmailReceipts(args);
+  return 'ok' as const;
+}
+
+async function emailReceiptsSetAutoApply({
+  autoApply,
+}: {
+  autoApply: boolean;
+}) {
+  await emailReceipts.setAutoApply(autoApply);
   return 'ok' as const;
 }
 
@@ -1920,6 +1930,7 @@ app.method('plaid-poll-link', pollPlaidLink);
 app.method('plaid-sandbox-link', plaidSandboxLink);
 app.method('email-receipts-status', emailReceiptsStatus);
 app.method('email-receipts-configure', emailReceiptsConfigure);
+app.method('email-receipts-set-auto-apply', emailReceiptsSetAutoApply);
 app.method('email-receipts-connect', emailReceiptsConnect);
 app.method('email-receipts-poll-connect', emailReceiptsPollConnect);
 app.method('email-receipts-sync', mutator(undoable(emailReceiptsSync)));
