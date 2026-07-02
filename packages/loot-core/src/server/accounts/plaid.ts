@@ -249,7 +249,13 @@ async function requireAccessToken(itemId: string): Promise<string> {
 // affects links created from this point on. An already-linked Item can't be
 // backfilled further; getting more history for an existing bank requires
 // unlinking and relinking it (which mints a new Item).
-const PRODUCTION_DAYS_REQUESTED = 730; // ~2 years; actual depth is bank-dependent
+//
+// Exported so the sync dispatch can widen its since-window to match: the
+// generic getAccountSyncStartDate clamps every provider to ~90 days (a
+// GoCardless-era assumption), which would silently discard the older 640
+// days of a 730-day Plaid stream - including backfill that Plaid delivers
+// asynchronously through the cursor days after linking.
+export const PLAID_HISTORY_DAYS = 730; // ~2 years; actual depth is bank-dependent
 
 /**
  * Create a Plaid Hosted Link session. The returned URL is opened in the
@@ -267,7 +273,7 @@ export async function createHostedLink(): Promise<PlaidHostedLink> {
     products: ['transactions'],
     country_codes: ['US'],
     language: 'en',
-    transactions: { days_requested: PRODUCTION_DAYS_REQUESTED },
+    transactions: { days_requested: PLAID_HISTORY_DAYS },
     hosted_link: {},
   });
   return { linkToken: res.link_token, url: res.hosted_link_url };

@@ -50,7 +50,16 @@ export const PlaidLinkModal = ({ onSuccess }: PlaidLinkModalProps) => {
     }
 
     let cancelled = false;
+    // On completion, plaid-poll-link exchanges the token and runs the full
+    // account link + initial sync, which can take minutes. The in-flight
+    // guard keeps interval ticks from stacking concurrent link attempts on
+    // top of it (each one burning Plaid API calls against the rate limit).
+    let inFlight = false;
     const intervalId = setInterval(async () => {
+      if (inFlight) {
+        return;
+      }
+      inFlight = true;
       try {
         const res = await send('plaid-poll-link', { linkToken });
         if (!cancelled && res.status === 'completed') {
@@ -60,6 +69,8 @@ export const PlaidLinkModal = ({ onSuccess }: PlaidLinkModalProps) => {
       } catch {
         // Transient poll failures are fine - the next tick retries, and the
         // user can always cancel.
+      } finally {
+        inFlight = false;
       }
     }, 4000);
 

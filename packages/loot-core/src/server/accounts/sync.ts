@@ -36,7 +36,11 @@ import type {
 } from '#types/models';
 
 import { getStartingBalancePayee } from './payees';
-import { downloadPlaidTransactions, savePlaidCursor } from './plaid';
+import {
+  downloadPlaidTransactions,
+  PLAID_HISTORY_DAYS,
+  savePlaidCursor,
+} from './plaid';
 import { title } from './title';
 
 function BankSyncError(type: string, code: string, details?: object) {
@@ -1209,8 +1213,19 @@ export async function syncAccount(
   } else if (acctRow.account_sync_source === 'plaid') {
     // bankId holds the Plaid item_id (the same pattern GoCardless uses for
     // its requisition id).
+    //
+    // Don't use syncStartDate here: getAccountSyncStartDate clamps to ~90
+    // days (a GoCardless limitation), which would permanently filter out the
+    // older part of Plaid's up-to-730-day stream - including historical
+    // backfill that Plaid finishes preparing asynchronously and delivers
+    // through the cursor on a LATER sync, possibly days after linking. The
+    // cursor already guarantees incremental delivery; the date floor only
+    // needs to match what was requested from Plaid at link time.
+    const plaidSince =
+      customStartingDate ??
+      monthUtils.subDays(monthUtils.currentDay(), PLAID_HISTORY_DAYS);
     const { download: plaidDownload, nextCursor } =
-      await downloadPlaidTransactions(bankId, acctId, syncStartDate);
+      await downloadPlaidTransactions(bankId, acctId, plaidSince);
     const res = await processBankSyncDownload(
       plaidDownload,
       id,
