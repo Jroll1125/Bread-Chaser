@@ -179,6 +179,11 @@ export async function findCandidates(
       const score = 0.6 * merchantScore + 0.25 * dateScore + 0.15;
       return { ...t, merchantScore, dateGapDays: gap, score };
     })
+    // The aql date range above is only a coarse pre-filter; the asymmetric
+    // window is enforced here, like the companion's dateWindowOk.
+    .filter(
+      t => t.dateGapDays >= -WINDOW_AFTER && t.dateGapDays <= WINDOW_BEFORE,
+    )
     .sort((a, b) => b.score - a.score);
 
   return candidates;

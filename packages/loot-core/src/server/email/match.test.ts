@@ -74,7 +74,7 @@ function makeReceipt(
   };
 }
 
-function getAllTransactions() {
+async function getAllTransactions() {
   return db.all<
     db.DbViewTransactionInternal & { payee_name: db.DbPayee['name'] | null }
   >(
@@ -181,7 +181,7 @@ describe('applyProposal', () => {
     );
     await applyProposal(proposalId, receipt, { auto: true });
 
-    const rows = getAllTransactions().filter(t => t.tombstone === 0);
+    const rows = (await getAllTransactions()).filter(t => t.tombstone === 0);
     const parent = rows.find(t => t.id === txnId);
     const children = rows.filter(t => t.parent_id === txnId);
 
@@ -206,7 +206,7 @@ describe('applyProposal', () => {
     );
     await applyProposal(proposalId, receipt);
 
-    const rows = getAllTransactions();
+    const rows = await getAllTransactions();
     const txn = rows.find(t => t.id === txnId);
     expect(txn?.is_parent).toBe(0);
     expect(txn?.amount).toBe(-3185); // enrichment never changes the balance
@@ -230,7 +230,7 @@ describe('applyProposal', () => {
     await applyProposal(proposalId, receipt, { auto: true });
     await unapplyProposal(proposalId);
 
-    const rows = getAllTransactions().filter(t => t.tombstone === 0);
+    const rows = (await getAllTransactions()).filter(t => t.tombstone === 0);
     const txn = rows.find(t => t.id === txnId);
     expect(txn?.is_parent).toBe(0);
     expect(txn?.payee_name).toBe('Google Play');
