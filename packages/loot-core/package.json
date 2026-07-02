@@ -51,6 +51,10 @@
       "api": "./src/platform/server/fs/path-join.api.ts",
       "default": "./src/platform/server/fs/path-join.ts"
     },
+    "#platform/server/oauth-loopback": {
+      "electron": "./src/platform/server/oauth-loopback/index.electron.ts",
+      "default": "./src/platform/server/oauth-loopback/index.ts"
+    },
     "#platform/server/secure-store": {
       "electron": "./src/platform/server/secure-store/index.electron.ts",
       "api": "./src/platform/server/secure-store/index.api.ts",
@@ -211,7 +215,8 @@
     "lru-cache": "^11.5.1",
     "mitt": "^3.0.1",
     "uuid": "^14.0.1",
-    "xml2js": "^0.6.2"
+    "xml2js": "^0.6.2",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@actual-app/crdt": "workspace:*",
