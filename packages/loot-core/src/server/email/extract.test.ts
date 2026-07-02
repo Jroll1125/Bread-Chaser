@@ -46,6 +46,61 @@ describe('email classify', () => {
     ).toBe('other');
   });
 
+  // Real subjects observed in Ben's inbox, 2026-06/07.
+  test('Amazon Ordered:/Shipped:/Delivered: subject formats', () => {
+    expect(
+      classify('auto-confirm@amazon.com', 'Ordered: "Pennzoil Platinum Full..." and 2 more items'),
+    ).toBe('receipt');
+    expect(
+      classify('shipment-tracking@amazon.com', 'Shipped: "Pennzoil Platinum Full..." and 2 more items'),
+    ).toBe('excluded');
+    expect(
+      classify('order-update@amazon.com', 'Delivered: "Pennzoil Platinum Full..." and 2 more items'),
+    ).toBe('excluded');
+    expect(
+      classify('return@amazon.com', 'Advance refund issued for Fast Auto Keys New For Select GM....'),
+    ).toBe('receipt');
+    expect(
+      classify('return@amazon.com', 'Dropoff confirmed for Fast Auto Keys New For Select GM...'),
+    ).toBe('excluded');
+  });
+
+  test('recurring non-spend mail from receipt senders is excluded', () => {
+    expect(
+      classify('noreply@news.paypal.com', 'Confirmed: Benjamin, you’ve been invited to apply for the PayPal Cashback Mastercard®'),
+    ).toBe('excluded');
+    expect(
+      classify('venmo@venmo.com', 'Your May 2026 transaction history'),
+    ).toBe('excluded');
+    expect(
+      classify('noreply@service.paypal.com', 'Benjamin Yoder, your May account statement is available.'),
+    ).toBe('excluded');
+    expect(classify('CARFAX@no-reply.carfax.com', 'Rate this car!')).toBe(
+      'excluded',
+    );
+    expect(
+      classify('noreply@mg.iracing.com', 'Update Your iRacing Payment Method'),
+    ).toBe('excluded');
+    expect(
+      classify('support@iracing.com', 'Feedback for iRacing Support'),
+    ).toBe('excluded');
+  });
+
+  test('the real receipts still classify as receipts', () => {
+    expect(
+      classify('venmo@venmo.com', 'Receipt from DoorDash - $78.13'),
+    ).toBe('receipt');
+    expect(
+      classify('noreply@mg.iracing.com', 'iRacing.com Receipt/Invoice'),
+    ).toBe('receipt');
+    expect(
+      classify('service@1aauto.com', '1A Auto Order Confirmation 2MZF09UJMJX'),
+    ).toBe('receipt');
+    expect(
+      classify('googleplay-noreply@google.com', 'Your Google Play Order Receipt from Jun 24, 2026'),
+    ).toBe('receipt');
+  });
+
   test('config deny list beats the built-in receipt patterns', () => {
     expect(
       classify('DoorDash <no-reply@doordash.com>', 'Order Confirmation', {

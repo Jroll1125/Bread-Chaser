@@ -99,15 +99,21 @@ export type EmailClass = 'receipt' | 'excluded' | 'other';
 // "order executed" confirmations, promos, and ship/deliver notices. Checked
 // BEFORE the receipt patterns because e.g. Robinhood's subjects contain the
 // word "order".
+// Patterns grounded against Ben's real inbox (2026-06/07 window): Amazon
+// uses "Ordered:/Shipped:/Delivered:" subjects; Robinhood's securities mail
+// says "order executed"; recurring non-spend mail from receipt senders
+// (PayPal card marketing, Venmo history, statements, surveys, payment-method
+// nags, return-dropoff notices) is excluded up front so it never burns a
+// local-model call.
 const EXCLUDE_SENDERS =
   /robinhood|edward\s*jones|fidelity|vanguard|schwab|e\*?trade/i;
 const EXCLUDE_SUBJECTS =
-  /order executed|trade confirmation|has shipped|was shipped|shipped:|out for delivery|was delivered|has been delivered|delivery update|on its way|tracking number|arriving|% off|flash sale|last chance|black friday|cyber monday|deal(s)? (end|of)|clearance/i;
+  /order executed|trade confirmation|has shipped|was shipped|shipped:|out for delivery|was delivered|has been delivered|delivered:|delivery update|on its way|tracking number|arriving|dropoff confirmed|return received|transaction history|account statement|statement is available|invited to apply|rate this|feedback for|payment method|% off|flash sale|last chance|black friday|cyber monday|deal(s)? (end|of)|clearance/i;
 
 const RECEIPT_SENDERS =
   /doordash|venmo|google play|googleplay|1a\s*auto|1aauto|iracing|carfax|enterprise|amazon|paypal|apple|uber|lyft|grubhub|walmart|target|ebay|etsy|steam/i;
 const RECEIPT_SUBJECTS =
-  /receipt|your order|order confirmation|order number|payment confirmation|you paid|payment to|thanks for your (order|purchase)|purchase confirmation|invoice|refund/i;
+  /receipt|your order|ordered:|order confirmation|order number|payment confirmation|you paid|payment to|thanks for your (order|purchase)|purchase confirmation|invoice|refund/i;
 
 /**
  * Cheap sender/subject pre-filter so obvious non-receipts never reach the
