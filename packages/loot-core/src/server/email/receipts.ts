@@ -53,7 +53,7 @@ const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 
 const DEFAULT_LLM_ENDPOINT = 'http://localhost:11434';
 const DEFAULT_LLM_MODEL = 'qwen2.5:7b';
-const DEFAULT_HISTORY_DAYS = 45;
+const DEFAULT_HISTORY_DAYS = 720;
 const DEFAULT_MAX_MESSAGES = 200;
 
 type EmailReceiptsConfigFile = {
