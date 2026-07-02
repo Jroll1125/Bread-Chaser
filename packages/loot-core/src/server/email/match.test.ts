@@ -214,6 +214,38 @@ describe('applyProposal', () => {
     expect(txn?.notes).toContain('DD-42');
   });
 
+  test('line items that overshoot the parent enrich instead of splitting', async () => {
+    // The exact-amount gate matches a -$27.99 bank txn, but the extracted
+    // line items sum to $30.99 (e.g. the model read a $3 discount as a
+    // positive line). Splitting would fabricate a +$3 reversed child; instead
+    // it must enrich in place and leave the balance untouched.
+    const txnId = await insertTxn('2025-06-11', -2799, 'Google Play');
+    const receipt = makeReceipt({
+      merchant: 'Google Play',
+      amount_cents: 2799,
+      line_items: [
+        { description: 'App One', amount_cents: 1500 },
+        { description: 'App Two', amount_cents: 1599 },
+      ],
+    });
+
+    const candidates = await findCandidates('msg-overshoot', receipt);
+    const proposalId = await recordProposal(
+      'msg-overshoot',
+      candidates[0],
+      'review',
+    );
+    await applyProposal(proposalId, receipt, { auto: true });
+
+    const rows = (await getAllTransactions()).filter(t => t.tombstone === 0);
+    const txn = rows.find(t => t.id === txnId);
+    expect(txn?.is_parent).toBe(0); // enriched, not split
+    expect(txn?.amount).toBe(-2799);
+    expect(rows.filter(t => t.parent_id === txnId)).toHaveLength(0);
+    // No opposite-signed child was ever created.
+    expect(rows.every(t => (t.amount ?? 0) <= 0)).toBe(true);
+  });
+
   test('unapply restores the snapshot and removes children', async () => {
     const txnId = await insertTxn('2025-06-11', -2799, 'Google Play');
     const receipt = makeReceipt({

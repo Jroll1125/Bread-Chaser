@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS email_messages (
   email_date TEXT,
   classified TEXT NOT NULL,
   body TEXT,
+  -- Set when the user dismisses an unmatched receipt from the review queue.
+  -- Only hides it from the queue; the matcher keeps checking it, so it
+  -- re-surfaces if a bank transaction posts later and becomes a candidate.
+  dismissed INTEGER NOT NULL DEFAULT 0,
   fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -74,7 +78,23 @@ export async function getEmailDb(): Promise<SidecarDb> {
   }
   db = await sqlite.openDatabase(lootFs.join(dataDir, DB_FILE));
   sqlite.execQuery(db, SCHEMA);
+  migrate(db);
   return db;
+}
+
+// Idempotent column adds for DBs created by an earlier build. SQLite has no
+// "ADD COLUMN IF NOT EXISTS", so we swallow the duplicate-column error.
+function migrate(database: SidecarDb): void {
+  const adds = [
+    'ALTER TABLE email_messages ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0',
+  ];
+  for (const sql of adds) {
+    try {
+      sqlite.execQuery(database, sql);
+    } catch {
+      // Column already exists.
+    }
+  }
 }
 
 /** Tests point the module at an in-memory database. */

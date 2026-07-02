@@ -718,14 +718,25 @@ export async function getEmailReceiptsStatus(): Promise<EmailReceiptsStatus> {
   const lastSync = await getMeta('last_sync');
 
   const database = await getEmailDb();
+  // A receipt counts as "pending review" when it has a usable extraction,
+  // isn't already applied, and is either not dismissed OR has a live match
+  // proposal waiting (a dismissed receipt re-surfaces once a candidate posts).
   const pendingRow = first<{ count: number }>(
     database,
     `SELECT COUNT(*) AS count FROM extractions e
+      JOIN email_messages m ON m.message_id = e.message_id
       WHERE e.status = 'ok'
         AND NOT EXISTS (
           SELECT 1 FROM match_proposals p
            WHERE p.message_id = e.message_id
              AND p.status IN ('applied', 'auto_applied')
+        )
+        AND (
+          m.dismissed = 0
+          OR EXISTS (
+            SELECT 1 FROM match_proposals p
+             WHERE p.message_id = e.message_id AND p.status = 'review'
+          )
         )`,
   );
 
@@ -777,10 +788,10 @@ export async function getReviewItems(): Promise<{
 }> {
   const database = await getEmailDb();
 
-  const rows = all<ExtractionRow & MessageRow>(
+  const rows = all<ExtractionRow & MessageRow & { dismissed: number }>(
     database,
     `SELECT e.message_id, e.model, e.output_json, e.status,
-            m.from_addr, m.subject, m.email_date
+            m.from_addr, m.subject, m.email_date, m.dismissed
        FROM extractions e
        JOIN email_messages m ON m.message_id = e.message_id
       WHERE e.status = 'ok'
@@ -839,6 +850,13 @@ export async function getReviewItems(): Promise<{
       )
     ) {
       applied.push(item);
+    } else if (
+      row.dismissed === 1 &&
+      !proposals.some(p => p.status === 'review')
+    ) {
+      // Dismissed and still nothing to act on - stay hidden until a bank
+      // transaction posts and gives it a candidate.
+      continue;
     } else {
       pending.push(item);
     }
@@ -884,12 +902,15 @@ export async function rejectMatch({
     return;
   }
   if (messageId) {
-    // An unmatched receipt (zero candidates) is dismissed by marking its
-    // extraction; the stored row keeps it dismissed across re-syncs.
+    // Dismiss an unmatched receipt from the review queue. This only hides it
+    // (a message-level flag) - the matcher keeps checking it on every sync,
+    // so if the bank charge posts a day later the receipt re-surfaces with
+    // its new candidate instead of being lost. (Contrast rejectProposal,
+    // which durably suppresses a specific message<->transaction pairing.)
     const database = await getEmailDb();
     run(
       database,
-      `UPDATE extractions SET status = 'dismissed' WHERE message_id = ?`,
+      `UPDATE email_messages SET dismissed = 1 WHERE message_id = ?`,
       [messageId],
     );
   }

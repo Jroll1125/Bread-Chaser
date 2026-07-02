@@ -344,7 +344,22 @@ export async function applyProposal(
     childIds: [],
   };
 
-  const makeSplit = receipt.line_items.length >= 2;
+  // The exact-signed-amount gate guarantees trans.amount === sign * total, so
+  // each child (sign * |item|) always agrees with the parent sign. The one
+  // way an itemized split can go wrong is if the items OVERSHOOT the parent
+  // (the model read a discount as a positive line, or hallucinated an item):
+  // then the balancing remainder flips sign, producing a nonsensical
+  // opposite-direction "Tax & fees" child. That signals an unreliable
+  // extraction, so we don't split it - we enrich instead (and the enriched
+  // receipt still surfaces in the review log for a human to eyeball).
+  const lineItemsTotal = receipt.line_items.reduce(
+    (acc, item) => acc + sign * Math.abs(item.amount_cents),
+    0,
+  );
+  const remainder = trans.amount - lineItemsTotal;
+  const remainderOk =
+    remainder === 0 || Math.sign(remainder) === Math.sign(trans.amount);
+  const makeSplit = receipt.line_items.length >= 2 && remainderOk;
 
   if (makeSplit) {
     const parent: TransactionEntity = {
@@ -362,8 +377,6 @@ export async function applyProposal(
         sort_order: 0 - idx,
       }),
     );
-    const childrenTotal = children.reduce((acc, c) => acc + c.amount, 0);
-    const remainder = trans.amount - childrenTotal;
     if (remainder !== 0) {
       children.push(
         makeChild(parent, {
