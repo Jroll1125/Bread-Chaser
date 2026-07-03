@@ -44,6 +44,57 @@ async function clearCategory(transaction, transferAcct) {
   return false;
 }
 
+// Transfer dates arrive as 'yyyy-mm-dd' strings from the client or as raw
+// yyyymmdd integers from re-fetched rows; the counterpart window needs the
+// integer form either way.
+function transferDateInt(date) {
+  return typeof date === 'number'
+    ? date
+    : parseInt(String(date).replace(/-/g, ''), 10);
+}
+
+function shiftDateInt(dateInt, days) {
+  const y = Math.floor(dateInt / 10000);
+  const m = Math.floor((dateInt % 10000) / 100) - 1;
+  const d = dateInt % 100;
+  const shifted = new Date(y, m, d + days);
+  return (
+    shifted.getFullYear() * 10000 +
+    (shifted.getMonth() + 1) * 100 +
+    shifted.getDate()
+  );
+}
+
+const COUNTERPART_WINDOW_DAYS = 4;
+
+// When both legs of a transfer were imported from their banks, the target
+// account already holds the other side. A plain, unlinked transaction there
+// with the exact opposite amount within a few days is that counterpart —
+// link to it instead of minting a duplicate mirror.
+async function findTransferCounterpart(transaction, transferredAccount) {
+  if (!transaction.amount || transaction.date == null) {
+    return null;
+  }
+  const center = transferDateInt(transaction.date);
+  return db.first<{ id: string }>(
+    `SELECT id FROM transactions
+      WHERE acct = ? AND tombstone = 0
+        AND isParent = 0 AND isChild = 0
+        AND amount = ?
+        AND transferred_id IS NULL
+        AND (starting_balance_flag IS NULL OR starting_balance_flag = 0)
+        AND date >= ? AND date <= ?
+      ORDER BY ABS(date - ?) LIMIT 1`,
+    [
+      transferredAccount,
+      -transaction.amount,
+      shiftDateInt(center, -COUNTERPART_WINDOW_DAYS),
+      shiftDateInt(center, COUNTERPART_WINDOW_DAYS),
+      center,
+    ],
+  );
+}
+
 export async function addTransfer(transaction, transferredAccount) {
   if (transaction.is_parent) {
     // For split transactions, we should create transfers using child transactions.
@@ -57,6 +108,31 @@ export async function addTransfer(transaction, transferredAccount) {
     'SELECT id FROM payees WHERE transfer_acct = ?',
     [transaction.account],
   );
+
+  const counterpart = await findTransferCounterpart(
+    transaction,
+    transferredAccount,
+  );
+  if (counterpart) {
+    await db.updateTransaction({
+      id: counterpart.id,
+      payee: fromPayee,
+      transfer_id: transaction.id,
+    });
+    await db.updateTransaction({
+      id: transaction.id,
+      transfer_id: counterpart.id,
+    });
+    const categoryCleared = await clearCategory(
+      { ...transaction, transfer_id: counterpart.id },
+      transferredAccount,
+    );
+    return {
+      id: transaction.id,
+      transfer_id: counterpart.id,
+      ...(categoryCleared ? { category: null } : {}),
+    };
+  }
 
   const transferTransaction = {
     account: transferredAccount,
@@ -100,10 +176,12 @@ export async function removeTransfer(transaction) {
   // (in & out) transfer transactions at the same time -
   // transfer transaction will not be found.
   if (transferTrans) {
-    if (transferTrans.is_child) {
-      // If it's a child transaction, we don't delete it because that
-      // would invalidate the whole split transaction. Instead of turn
-      // it into a normal transaction
+    if (transferTrans.is_child || transferTrans.imported_id) {
+      // A child transaction can't be deleted without invalidating its whole
+      // split, and an adopted bank-imported counterpart is a real ledger row
+      // (deleting it would break the account against the bank, and a later
+      // sync would just re-import it). Turn either back into a normal
+      // transaction instead.
       await db.updateTransaction({
         id: transaction.transfer_id,
         transfer_id: null,

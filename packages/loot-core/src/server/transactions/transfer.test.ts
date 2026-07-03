@@ -171,6 +171,121 @@ describe('Transfer', () => {
     differ.expectToMatchDiff(await getAllTransactions());
   });
 
+  test('marking a transfer adopts an existing imported counterpart', async () => {
+    await prepareDatabase();
+
+    const transferTwo = await db.first<db.DbPayee>(
+      "SELECT * FROM payees WHERE transfer_acct = 'two'",
+    );
+
+    // The other side already exists in account two, imported from the bank
+    // (posted a day later, categorized by a rule).
+    const counterpart: Transaction = {
+      account: 'two',
+      amount: -5000,
+      payee: await db.insertPayee({ name: 'Bank descriptor' }),
+      date: '2017-01-02',
+      category: '1',
+    };
+    counterpart.id = await db.insertTransaction(counterpart);
+    await db.updateTransaction({ id: counterpart.id, imported_id: 'bank-123' });
+
+    const transaction: Transaction = {
+      account: 'one',
+      amount: 5000,
+      payee: transferTwo.id,
+      date: '2017-01-01',
+    };
+    transaction.id = await db.insertTransaction(transaction);
+    await transfer.onInsert(transaction);
+
+    // Linked both ways, no new mirror minted.
+    const source = await db.getTransaction(transaction.id);
+    const adopted = await db.getTransaction(counterpart.id);
+    expect(source.transfer_id).toBe(counterpart.id);
+    expect(adopted.transfer_id).toBe(transaction.id);
+    expect((await getAllTransactions()).length).toBe(2);
+
+    // Both on budget: the adopted row's category is cleared.
+    expect(adopted.category).toBeNull();
+  });
+
+  test('a transfer with no counterpart still creates a mirror', async () => {
+    await prepareDatabase();
+
+    const transferTwo = await db.first<db.DbPayee>(
+      "SELECT * FROM payees WHERE transfer_acct = 'two'",
+    );
+
+    // Same account, but wrong amount and outside the window — not adoptable.
+    await db.insertTransaction({
+      account: 'two',
+      amount: -4000,
+      payee: await db.insertPayee({ name: 'Different amount' }),
+      date: '2017-01-01',
+    });
+    await db.insertTransaction({
+      account: 'two',
+      amount: -5000,
+      payee: await db.insertPayee({ name: 'Too far away' }),
+      date: '2017-02-01',
+    });
+
+    const transaction: Transaction = {
+      account: 'one',
+      amount: 5000,
+      payee: transferTwo.id,
+      date: '2017-01-01',
+    };
+    transaction.id = await db.insertTransaction(transaction);
+    await transfer.onInsert(transaction);
+
+    const source = await db.getTransaction(transaction.id);
+    expect(source.transfer_id).toBeDefined();
+    // 2 unrelated + source + minted mirror
+    expect((await getAllTransactions()).length).toBe(4);
+  });
+
+  test('unlinking an adopted imported counterpart keeps the row', async () => {
+    await prepareDatabase();
+
+    const transferTwo = await db.first<db.DbPayee>(
+      "SELECT * FROM payees WHERE transfer_acct = 'two'",
+    );
+
+    const counterpart: Transaction = {
+      account: 'two',
+      amount: -5000,
+      payee: await db.insertPayee({ name: 'Bank descriptor' }),
+      date: '2017-01-01',
+    };
+    counterpart.id = await db.insertTransaction(counterpart);
+    await db.updateTransaction({ id: counterpart.id, imported_id: 'bank-456' });
+
+    let transaction: Transaction = {
+      account: 'one',
+      amount: 5000,
+      payee: transferTwo.id,
+      date: '2017-01-01',
+    };
+    transaction.id = await db.insertTransaction(transaction);
+    await transfer.onInsert(transaction);
+
+    // Move the source off the transfer payee; the adopted bank row must
+    // survive as a plain transaction, not be deleted.
+    transaction = {
+      ...(await db.getTransaction(transaction.id)),
+      payee: await db.insertPayee({ name: 'Not a transfer' }),
+    };
+    await db.updateTransaction(transaction);
+    await transfer.onUpdate(transaction);
+
+    const kept = await db.getTransaction(counterpart.id);
+    expect(kept).toBeTruthy();
+    expect(kept.transfer_id).toBeNull();
+    expect(kept.amount).toBe(-5000);
+  });
+
   test('split transfers are retained on child transactions', async () => {
     // test: first add a txn having a transfer acct payee
     // then mark it as `is_parent` and add a child txn
