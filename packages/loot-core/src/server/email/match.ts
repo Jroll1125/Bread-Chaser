@@ -322,7 +322,7 @@ function asUpdates(updates: TransactionUpdate[]): Partial<TransactionEntity>[] {
 export async function applyProposal(
   proposalId: number,
   receipt: ReceiptExtraction,
-  { auto = false }: { auto?: boolean } = {},
+  { auto = false, payeeName }: { auto?: boolean; payeeName?: string } = {},
 ): Promise<void> {
   const database = await getEmailDb();
   const proposal = first<ProposalRow>(
@@ -349,7 +349,11 @@ export async function applyProposal(
   // split children agreeing with the parent sign even when candidate
   // matching was sign-tolerant.
   const sign = trans.amount < 0 ? -1 : 1;
-  const payeeId = await findOrCreatePayee(receipt.merchant);
+  // Payee defaults to the extracted merchant, but the user can override it at
+  // apply time — e.g. a subscription billed through Google Play whose real
+  // vendor is onX Maps: the receipt says "Google Play", the payee should say
+  // "onX Maps".
+  const payeeId = await findOrCreatePayee(payeeName?.trim() || receipt.merchant);
   const note = receiptNote(receipt);
 
   const snapshot: ApplySnapshot = {

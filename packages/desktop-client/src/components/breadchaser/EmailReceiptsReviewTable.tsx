@@ -200,6 +200,12 @@ export function EmailReceiptsReviewTable() {
   const [linkingFor, setLinkingFor] = useState<string | null>(null);
   const [isRebuilding, setIsRebuilding] = useState(false);
   const [rebuildMsg, setRebuildMsg] = useState<string | null>(null);
+  // Per-receipt payee override for Apply/Link; defaults to the extracted
+  // merchant. Lets the user retarget e.g. a Google Play receipt to onX Maps.
+  const [payeeOverrides, setPayeeOverrides] = useState<Record<string, string>>(
+    {},
+  );
+  const { data: payees = [] } = usePayees();
 
   const reload = async () => {
     try {
@@ -259,10 +265,21 @@ export function EmailReceiptsReviewTable() {
   const pending = lists?.pending ?? [];
   const applied = lists?.applied ?? [];
   const unmatched = pending.filter(item => !bestProposal(item));
+  const payeeFor = (item: EmailReviewItem) =>
+    payeeOverrides[item.messageId] ?? item.receipt.merchant;
 
   return (
     <View style={{ gap: 18 }}>
       {error && <ErrorAlert>{error}</ErrorAlert>}
+
+      {/* Autocomplete suggestions for the per-row payee override. */}
+      <datalist id="bc-email-payee-options">
+        {payees
+          .filter(p => p.name && !p.transfer_acct)
+          .map(p => (
+            <option key={p.id} value={p.name} />
+          ))}
+      </datalist>
 
       <View style={{ gap: 6 }}>
         <View
@@ -372,6 +389,46 @@ export function EmailReceiptsReviewTable() {
                           >
                             {item.subject ?? item.from ?? item.messageId}
                           </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              marginTop: 5,
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: theme.pageTextSubdued,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {t('Payee')}
+                            </span>
+                            <input
+                              list="bc-email-payee-options"
+                              value={payeeFor(item)}
+                              disabled={isBusy}
+                              placeholder={item.receipt.merchant}
+                              onChange={e =>
+                                setPayeeOverrides(prev => ({
+                                  ...prev,
+                                  [item.messageId]: e.target.value,
+                                }))
+                              }
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                fontSize: 12,
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                border: '1px solid ' + theme.tableBorder,
+                                backgroundColor: theme.tableBackground,
+                                color: theme.pageText,
+                              }}
+                            />
+                          </div>
                         </td>
                         <td
                           style={{
@@ -413,6 +470,7 @@ export function EmailReceiptsReviewTable() {
                                     void act(() =>
                                       send('email-receipts-apply', {
                                         proposalId: best.id,
+                                        payeeName: payeeFor(item),
                                       }),
                                     )
                                   }
@@ -468,6 +526,7 @@ export function EmailReceiptsReviewTable() {
                                   send('email-receipts-link-manual', {
                                     messageId: item.messageId,
                                     transactionId,
+                                    payeeName: payeeFor(item),
                                   }),
                                 )
                               }

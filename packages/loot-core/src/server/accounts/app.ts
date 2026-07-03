@@ -526,7 +526,10 @@ async function emailReceiptsProposals() {
   return emailReceipts.getReviewItems();
 }
 
-async function emailReceiptsApply(args: { proposalId: number }) {
+async function emailReceiptsApply(args: {
+  proposalId: number;
+  payeeName?: string;
+}) {
   await emailReceipts.applyMatch(args);
   connection.send('sync-event', {
     type: 'success',
@@ -538,6 +541,7 @@ async function emailReceiptsApply(args: { proposalId: number }) {
 async function emailReceiptsLinkManual(args: {
   messageId: string;
   transactionId: string;
+  payeeName?: string;
 }) {
   await emailReceipts.linkManualMatch(args);
   connection.send('sync-event', {

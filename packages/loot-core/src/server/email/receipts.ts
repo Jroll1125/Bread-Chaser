@@ -1076,8 +1076,10 @@ export async function getReviewItems(): Promise<{
 
 export async function applyMatch({
   proposalId,
+  payeeName,
 }: {
   proposalId: number;
+  payeeName?: string;
 }): Promise<void> {
   const database = await getEmailDb();
   const proposal = first<{ message_id: string }>(
@@ -1097,7 +1099,7 @@ export async function applyMatch({
   if (!receipt) {
     throw new Error('The extraction for this match is no longer readable');
   }
-  await applyProposal(proposalId, receipt);
+  await applyProposal(proposalId, receipt, { payeeName });
 }
 
 /**
@@ -1110,16 +1112,18 @@ export async function applyMatch({
 export async function linkManualMatch({
   messageId,
   transactionId,
+  payeeName,
 }: {
   messageId: string;
   transactionId: string;
+  payeeName?: string;
 }): Promise<void> {
   const proposalId = await recordProposal(
     messageId,
     { id: transactionId, merchantScore: 1, dateGapDays: 0, score: 1 },
     'review',
   );
-  await applyMatch({ proposalId });
+  await applyMatch({ proposalId, payeeName });
 }
 
 export async function rejectMatch({

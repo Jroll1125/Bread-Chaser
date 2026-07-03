@@ -191,6 +191,24 @@ describe('email receipt auto-attach', () => {
     expect(await attachmentsFor(txnId)).toHaveLength(0);
   });
 
+  it('applies with a payee override instead of the extracted merchant', async () => {
+    const txnId = await insertTxn('2026-06-11', -3185);
+    await insertEmailMessage('msg-payee');
+    const proposalId = await recordProposal(
+      'msg-payee',
+      { id: txnId, merchantScore: 1, dateGapDays: 1, score: 1 },
+      'review',
+    );
+
+    await applyProposal(proposalId, makeReceipt({ merchant: 'Google Play' }), {
+      payeeName: 'onX Maps',
+    });
+
+    // The override payee is created and used; the extracted merchant is not.
+    expect(await db.getPayeeByName('onX Maps')).toBeTruthy();
+    expect(await db.getPayeeByName('Google Play')).toBeFalsy();
+  });
+
   it('renders plain-text bodies as readable HTML when no body_html', () => {
     const html = renderReceiptEmailHtml({
       subject: 'Receipt <test>',
