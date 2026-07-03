@@ -76,6 +76,7 @@ export type AccountHandlers = {
   'email-receipts-sync': typeof emailReceiptsSync;
   'email-receipts-proposals': typeof emailReceiptsProposals;
   'email-receipts-apply': typeof emailReceiptsApply;
+  'email-receipts-link-manual': typeof emailReceiptsLinkManual;
   'email-receipts-reject': typeof emailReceiptsReject;
   'email-receipts-unapply': typeof emailReceiptsUnapply;
   'email-receipts-disconnect': typeof emailReceiptsDisconnect;
@@ -526,6 +527,18 @@ async function emailReceiptsProposals() {
 
 async function emailReceiptsApply(args: { proposalId: number }) {
   await emailReceipts.applyMatch(args);
+  connection.send('sync-event', {
+    type: 'success',
+    tables: ['transactions'],
+  });
+  return 'ok' as const;
+}
+
+async function emailReceiptsLinkManual(args: {
+  messageId: string;
+  transactionId: string;
+}) {
+  await emailReceipts.linkManualMatch(args);
   connection.send('sync-event', {
     type: 'success',
     tables: ['transactions'],
@@ -2000,6 +2013,10 @@ app.method('email-receipts-poll-connect', emailReceiptsPollConnect);
 app.method('email-receipts-sync', mutator(undoable(emailReceiptsSync)));
 app.method('email-receipts-proposals', emailReceiptsProposals);
 app.method('email-receipts-apply', mutator(undoable(emailReceiptsApply)));
+app.method(
+  'email-receipts-link-manual',
+  mutator(undoable(emailReceiptsLinkManual)),
+);
 app.method('email-receipts-reject', emailReceiptsReject);
 app.method('email-receipts-unapply', mutator(undoable(emailReceiptsUnapply)));
 app.method('email-receipts-disconnect', emailReceiptsDisconnect);

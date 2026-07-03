@@ -59,6 +59,10 @@
       "electron": "./src/platform/server/local-api/index.electron.ts",
       "default": "./src/platform/server/local-api/index.ts"
     },
+    "#platform/server/html-to-pdf": {
+      "electron": "./src/platform/server/html-to-pdf/index.electron.ts",
+      "default": "./src/platform/server/html-to-pdf/index.ts"
+    },
     "#platform/server/secure-store": {
       "electron": "./src/platform/server/secure-store/index.electron.ts",
       "api": "./src/platform/server/secure-store/index.api.ts",

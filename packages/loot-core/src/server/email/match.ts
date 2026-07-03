@@ -1,5 +1,6 @@
 import * as dateFns from 'date-fns';
 
+import { renderHtmlToPdf } from '#platform/server/html-to-pdf';
 import { logger } from '#platform/server/log';
 import { aqlQuery } from '#server/aql';
 import {
@@ -459,7 +460,10 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-export function renderReceiptEmailHtml(msg: EmailMessageRow): string {
+export function renderReceiptEmailHtml(
+  msg: EmailMessageRow,
+  messageId?: string,
+): string {
   const body = msg.body ?? '';
   // The pipeline stores whichever of text/html or text/plain it decoded;
   // wrap plain text so it stays readable in a browser.
@@ -480,10 +484,16 @@ export function renderReceiptEmailHtml(msg: EmailMessageRow): string {
     )
     .join('\n');
 
+  // A way back to the source: Gmail resolves its message ids in this URL
+  // form for the signed-in account.
+  const gmailLink = messageId
+    ? `<div><strong>Email:</strong> <a href="https://mail.google.com/mail/u/0/#all/${encodeURIComponent(messageId)}">Open in Gmail</a></div>`
+    : '';
+
   return [
     '<!doctype html>',
     '<html><head><meta charset="utf-8"></head><body>',
-    `<div style="border-bottom: 1px solid #ccc; padding-bottom: 8px; margin-bottom: 12px; font-family: sans-serif; font-size: 13px;">${headerRows}</div>`,
+    `<div style="border-bottom: 1px solid #ccc; padding-bottom: 8px; margin-bottom: 12px; font-family: sans-serif; font-size: 13px;">${headerRows}${gmailLink}</div>`,
     bodyHtml,
     '</body></html>',
   ].join('\n');
@@ -514,12 +524,32 @@ async function attachReceiptEmail(
       return;
     }
     const datePart = (msg.email_date ?? '').slice(0, 10);
-    const fileName = `receipt-email${datePart ? '-' + datePart : ''}.html`;
+    const html = renderReceiptEmailHtml(msg, messageId);
+
+    // Prefer a PDF of the rendered email (far more readable than raw HTML);
+    // fall back to the HTML itself when no renderer is available.
+    let data: Buffer = Buffer.from(html, 'utf8');
+    let fileName = `receipt-email${datePart ? '-' + datePart : ''}.html`;
+    let contentType = 'text/html';
+    try {
+      const pdf = await renderHtmlToPdf(html);
+      if (pdf) {
+        data = pdf;
+        fileName = `receipt-email${datePart ? '-' + datePart : ''}.pdf`;
+        contentType = 'application/pdf';
+      }
+    } catch (err) {
+      logger.warn(
+        '[email-receipts] PDF render failed; attaching HTML instead',
+        err,
+      );
+    }
+
     await addAttachmentBuffer({
       transactionId,
-      data: Buffer.from(renderReceiptEmailHtml(msg), 'utf8'),
+      data,
       fileName,
-      contentType: 'text/html',
+      contentType,
       source: 'email',
       sourceKey: messageId,
     });

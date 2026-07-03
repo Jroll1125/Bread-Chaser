@@ -7,6 +7,7 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
 import { EmailReceiptsCard } from '#components/breadchaser/EmailReceiptsCard';
+import { EmailReceiptsReviewTable } from '#components/breadchaser/EmailReceiptsReviewTable';
 import { MOBILE_NAV_HEIGHT } from '#components/mobile/MobileNavTabs';
 import { Page } from '#components/Page';
 import { useGlobalPref } from '#hooks/useGlobalPref';
@@ -24,15 +25,21 @@ export function EmailReceiptsPage() {
         paddingBottom: MOBILE_NAV_HEIGHT,
       }}
     >
-      <View style={{ marginTop: '1em', maxWidth: 600, gap: 12 }}>
-        <Text style={{ color: theme.pageTextSubdued, lineHeight: 1.5 }}>
-          <Trans>
-            Receipts from your Gmail are read by a local AI model on this machine
-            and matched to your imported transactions — nothing leaves your
-            computer. Configure the connection and extraction below.
-          </Trans>
-        </Text>
-        <EmailReceiptsCard />
+      <View style={{ marginTop: '1em', gap: 18 }}>
+        <View style={{ maxWidth: 600, gap: 12 }}>
+          <Text style={{ color: theme.pageTextSubdued, lineHeight: 1.5 }}>
+            <Trans>
+              Receipts from your Gmail are read by a local AI model on this
+              machine and matched to your imported transactions — nothing
+              leaves your computer. Configure the connection and extraction
+              below.
+            </Trans>
+          </Text>
+          <EmailReceiptsCard />
+        </View>
+        <View style={{ maxWidth: 1000 }}>
+          <EmailReceiptsReviewTable />
+        </View>
       </View>
     </Page>
   );

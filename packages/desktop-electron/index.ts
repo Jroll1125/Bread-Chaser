@@ -191,6 +191,36 @@ let oauthLoopback: {
   error: string | null;
 } | null = null;
 
+// Renders untrusted HTML (a receipt email) to a PDF in a throwaway hidden
+// window; the loot-core server drives this over the parentPort bridge
+// (html-to-pdf-request / -response) since the utility process cannot own
+// windows. Scripts are disabled and the document loads from a data: URL, so
+// the email content can't run code or touch disk.
+const renderHtmlToPdf = async (html: string): Promise<string> => {
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      sandbox: true,
+      nodeIntegration: false,
+      contextIsolation: true,
+      javascript: false,
+    },
+  });
+  try {
+    await win.loadURL(
+      'data:text/html;charset=utf-8,' + encodeURIComponent(html),
+    );
+    const pdf = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'Letter',
+      margins: { top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 },
+    });
+    return pdf.toString('base64');
+  } finally {
+    win.destroy();
+  }
+};
+
 const startOAuthLoopback = () =>
   new Promise<number>((resolve, reject) => {
     if (oauthLoopback) {
@@ -365,6 +395,26 @@ async function createBackgroundProcess() {
         } else {
           respond(null, 'Unknown oauth-loopback op: ' + op);
         }
+        break;
+      }
+      case 'html-to-pdf-request': {
+        const { id, html } = msg;
+        renderHtmlToPdf(String(html)).then(
+          base64 =>
+            serverProcess?.postMessage({
+              type: 'html-to-pdf-response',
+              id,
+              result: base64,
+              error: null,
+            }),
+          err =>
+            serverProcess?.postMessage({
+              type: 'html-to-pdf-response',
+              id,
+              result: null,
+              error: err instanceof Error ? err.message : String(err),
+            }),
+        );
         break;
       }
       case 'reply':

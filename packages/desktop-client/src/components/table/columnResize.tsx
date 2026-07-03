@@ -126,6 +126,42 @@ export function useColumnWidth(
   return context?.widths[column] ?? defaultWidth;
 }
 
+type ResizableColProps = {
+  col: string;
+  flex: number;
+  grip?: boolean;
+  style?: CSSProperties;
+  children?: ReactNode;
+};
+
+/**
+ * A flex table column that honors a drag-resized pixel override: pinned to
+ * px when the user resized it, proportional flex otherwise. Header cells
+ * pass `grip` to render the drag handle.
+ */
+export function ResizableCol({
+  col,
+  flex,
+  grip,
+  style,
+  children,
+}: ResizableColProps) {
+  const width = useColumnWidth(col, undefined);
+  return (
+    <View
+      style={{
+        ...(typeof width === 'number' ? { width, flexShrink: 0 } : { flex }),
+        position: 'relative',
+        justifyContent: 'center',
+        ...style,
+      }}
+    >
+      {children}
+      {grip && <ColumnResizeGrip column={col} />}
+    </View>
+  );
+}
+
 type ColumnResizeGripProps = {
   column: string;
 };

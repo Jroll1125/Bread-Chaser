@@ -987,6 +987,28 @@ export async function applyMatch({
   await applyProposal(proposalId, receipt);
 }
 
+/**
+ * Link a receipt to a transaction the user picked by hand, bypassing the
+ * automatic matcher. Records a full-confidence proposal for the pair and
+ * applies it through the normal apply path (split/enrich + attach email),
+ * so undo, snapshots, and idempotency all behave exactly like an automatic
+ * match.
+ */
+export async function linkManualMatch({
+  messageId,
+  transactionId,
+}: {
+  messageId: string;
+  transactionId: string;
+}): Promise<void> {
+  const proposalId = await recordProposal(
+    messageId,
+    { id: transactionId, merchantScore: 1, dateGapDays: 0, score: 1 },
+    'review',
+  );
+  await applyMatch({ proposalId });
+}
+
 export async function rejectMatch({
   proposalId,
   messageId,
