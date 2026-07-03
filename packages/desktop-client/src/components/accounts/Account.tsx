@@ -90,6 +90,7 @@ import { updateNewTransactions } from '#transactions/transactionsSlice';
 
 import { AccountEmptyMessage } from './AccountEmptyMessage';
 import { AccountHeader } from './Header';
+import { MortgagePanel } from './MortgagePanel';
 
 type ConditionEntity = Partial<RuleConditionEntity> | TransactionFilterEntity;
 
@@ -801,6 +802,7 @@ class AccountInternal extends PureComponent<
       | 'link'
       | 'account-type'
       | 'mortgage-settings'
+      | 'mortgage-escrow'
       | 'unlink'
       | 'close'
       | 'reopen'
@@ -844,6 +846,16 @@ class AccountInternal extends PureComponent<
           pushModal({
             modal: {
               name: 'mortgage-setup',
+              options: { accountId },
+            },
+          }),
+        );
+        break;
+      case 'mortgage-escrow':
+        this.props.dispatch(
+          pushModal({
+            modal: {
+              name: 'mortgage-escrow',
               options: { accountId },
             },
           }),
@@ -1896,6 +1908,10 @@ class AccountInternal extends PureComponent<
                 onMakeAsNonSplitTransactions={this.onMakeAsNonSplitTransactions}
                 onMergeTransactions={this.onMergeTransactions}
               />
+
+              {account && account.type === 'mortgage' && (
+                <MortgagePanel account={account} />
+              )}
 
               <View style={{ flex: 1 }}>
                 <TransactionList

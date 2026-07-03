@@ -737,6 +737,7 @@ type AccountMenuProps = {
       | 'link'
       | 'account-type'
       | 'mortgage-settings'
+      | 'mortgage-escrow'
       | 'unlink'
       | 'close'
       | 'reopen'
@@ -811,7 +812,10 @@ function AccountMenu({
           ? [{ name: 'account-type', text: t('Account type…') } as const]
           : []),
         ...(account && !account.closed && account.type === 'mortgage'
-          ? [{ name: 'mortgage-settings', text: t('Mortgage terms…') } as const]
+          ? [
+              { name: 'mortgage-settings', text: t('Mortgage terms…') } as const,
+              { name: 'mortgage-escrow', text: t('Adjust escrow…') } as const,
+            ]
           : []),
         ...(account && !account.closed
           ? canSync

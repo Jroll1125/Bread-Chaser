@@ -172,6 +172,12 @@ export type Modal =
       };
     }
   | {
+      name: 'mortgage-escrow';
+      options: {
+        accountId: AccountEntity['id'];
+      };
+    }
+  | {
       name: 'simplefin-init';
       options: {
         onSuccess: () => void;

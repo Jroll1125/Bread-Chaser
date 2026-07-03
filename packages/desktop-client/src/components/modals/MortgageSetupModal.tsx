@@ -8,6 +8,7 @@ import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 import { send } from '@actual-app/core/platform/client/connection';
+import { computePayment } from '@actual-app/core/shared/mortgage';
 
 import { Error as ErrorAlert } from '#components/alerts';
 import {
@@ -24,16 +25,28 @@ type MortgageSetupModalProps = Extract<
   { name: 'mortgage-setup' }
 >['options'];
 
-function dollars(cents: number): string {
+function dollars(cents: number | null): string {
   return cents ? String(cents / 100) : '';
+}
+
+function toCents(v: string): number {
+  return Math.round((parseFloat(v) || 0) * 100);
+}
+
+function formatMoney(cents: number): string {
+  return (cents / 100).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  });
 }
 
 export function MortgageSetupModal({ accountId }: MortgageSetupModalProps) {
   const { t } = useTranslation();
-  const [rate, setRate] = useState(''); // annual %, e.g. "6.5"
-  const [propertyTax, setPropertyTax] = useState(''); // $/month
-  const [homeInsurance, setHomeInsurance] = useState('');
-  const [pmi, setPmi] = useState('');
+  const [rate, setRate] = useState(''); // annual %, e.g. "7"
+  const [principal, setPrincipal] = useState(''); // original loan, $
+  const [startDate, setStartDate] = useState(''); // yyyy-mm-dd
+  const [termYears, setTermYears] = useState(''); // e.g. "30"
+  const [piPayment, setPiPayment] = useState(''); // monthly P&I, $ (optional)
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,30 +55,43 @@ export function MortgageSetupModal({ accountId }: MortgageSetupModalProps) {
       .then(cfg => {
         if (cfg) {
           setRate(String(Number((cfg.annualInterestRate * 100).toFixed(4))));
-          setPropertyTax(dollars(cfg.propertyTaxMonthly));
-          setHomeInsurance(dollars(cfg.homeInsuranceMonthly));
-          setPmi(dollars(cfg.pmiMonthly));
+          setPrincipal(dollars(cfg.originalPrincipal));
+          setStartDate(cfg.startDate ?? '');
+          setTermYears(cfg.termMonths ? String(cfg.termMonths / 12) : '');
+          setPiPayment(dollars(cfg.piPayment));
         }
       })
       .catch(() => {});
   }, [accountId]);
 
+  // Live P&I from the entered terms, so the user can confirm it matches the
+  // statement before saving (and can leave the P&I field blank to use it).
+  const rateFraction = parseFloat(rate) / 100;
+  const termMonths = Math.round(parseFloat(termYears) * 12);
+  const calculatedPI =
+    rateFraction >= 0 &&
+    rateFraction < 1 &&
+    termMonths > 0 &&
+    parseFloat(principal) > 0
+      ? computePayment(toCents(principal), rateFraction, termMonths)
+      : null;
+
   const onSave = async (close: () => void) => {
-    const rateFraction = parseFloat(rate) / 100;
     if (!(rateFraction >= 0 && rateFraction < 1)) {
-      setError(t('Enter the annual interest rate, e.g. 6.5'));
+      setError(t('Enter the annual interest rate, e.g. 7'));
       return;
     }
-    const toCents = (v: string) => Math.round((parseFloat(v) || 0) * 100);
     setIsSaving(true);
     setError(null);
     try {
+      const enteredPI = toCents(piPayment);
       await send('mortgage-save-config', {
         accountId,
         annualInterestRate: rateFraction,
-        propertyTaxMonthly: toCents(propertyTax),
-        homeInsuranceMonthly: toCents(homeInsurance),
-        pmiMonthly: toCents(pmi),
+        originalPrincipal: principal ? toCents(principal) : null,
+        startDate: startDate || null,
+        termMonths: termMonths > 0 ? termMonths : null,
+        piPayment: enteredPI || calculatedPI || null,
       });
       close();
     } catch (err) {
@@ -73,6 +99,16 @@ export function MortgageSetupModal({ accountId }: MortgageSetupModalProps) {
     }
     setIsSaving(false);
   };
+
+  const dateInputStyle = {
+    height: 36,
+    padding: '0 10px',
+    border: '1px solid ' + theme.formInputBorder,
+    borderRadius: 4,
+    backgroundColor: theme.tableBackground,
+    color: theme.pageText,
+    colorScheme: 'light dark',
+  } as const;
 
   return (
     <Modal name="mortgage-setup" containerProps={{ style: { width: 450 } }}>
@@ -85,9 +121,10 @@ export function MortgageSetupModal({ accountId }: MortgageSetupModalProps) {
           <View style={{ display: 'flex', gap: 10 }}>
             <Text style={{ color: theme.pageTextSubdued, lineHeight: 1.5 }}>
               <Trans>
-                Enter your loan terms. Splitting a payment then uses the current
-                balance and rate to work out interest, and these monthly escrow
-                amounts for taxes and insurance; the rest is principal.
+                Enter your loan terms. These drive the amortization schedule,
+                payoff date, and how a payment splits into interest and
+                principal. Manage taxes and insurance separately with “Adjust
+                escrow”, since those change over time.
               </Trans>
             </Text>
 
@@ -104,45 +141,72 @@ export function MortgageSetupModal({ accountId }: MortgageSetupModalProps) {
                     setRate(value);
                     setError(null);
                   }}
-                  placeholder="6.5"
+                  placeholder="7"
                 />
               </InitialFocus>
             </FormField>
 
             <FormField>
               <FormLabel
-                title={t('Property tax ($/month):')}
-                htmlFor="mtg-tax"
+                title={t('Original loan amount ($):')}
+                htmlFor="mtg-principal"
               />
               <Input
-                id="mtg-tax"
-                value={propertyTax}
-                onChangeValue={setPropertyTax}
-                placeholder="500"
+                id="mtg-principal"
+                value={principal}
+                onChangeValue={setPrincipal}
+                placeholder="404910"
+              />
+            </FormField>
+
+            <FormField>
+              <FormLabel title={t('Loan start date:')} htmlFor="mtg-start" />
+              <input
+                id="mtg-start"
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                style={dateInputStyle}
+              />
+            </FormField>
+
+            <FormField>
+              <FormLabel title={t('Term (years):')} htmlFor="mtg-term" />
+              <Input
+                id="mtg-term"
+                value={termYears}
+                onChangeValue={setTermYears}
+                placeholder="30"
               />
             </FormField>
 
             <FormField>
               <FormLabel
-                title={t('Home insurance ($/month):')}
-                htmlFor="mtg-ins"
+                title={t('Monthly principal + interest ($):')}
+                htmlFor="mtg-pi"
               />
               <Input
-                id="mtg-ins"
-                value={homeInsurance}
-                onChangeValue={setHomeInsurance}
-                placeholder="100"
+                id="mtg-pi"
+                value={piPayment}
+                onChangeValue={setPiPayment}
+                placeholder={
+                  calculatedPI ? String(calculatedPI / 100) : '2693.88'
+                }
               />
-            </FormField>
-
-            <FormField>
-              <FormLabel title={t('PMI ($/month):')} htmlFor="mtg-pmi" />
-              <Input
-                id="mtg-pmi"
-                value={pmi}
-                onChangeValue={setPmi}
-                placeholder="0"
-              />
+              {calculatedPI != null && (
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: theme.pageTextSubdued,
+                    marginTop: 4,
+                  }}
+                >
+                  <Trans>
+                    Calculated from your terms: {{ pi: formatMoney(calculatedPI) }}
+                    /mo. Leave blank to use it.
+                  </Trans>
+                </Text>
+              )}
             </FormField>
 
             {error && <ErrorAlert>{error}</ErrorAlert>}
