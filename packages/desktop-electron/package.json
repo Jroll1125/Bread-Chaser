@@ -1,8 +1,8 @@
 {
   "name": "desktop-electron",
   "version": "26.8.1",
-  "description": "Bread Chaser — a personal finance app by Rock Run Industries",
-  "author": "Rock Run Industries",
+  "description": "Bread Chaser — a personal finance app by Ben Yoder",
+  "author": "Ben Yoder",
   "main": "build/desktop-electron/index.js",
   "scripts": {
     "clean": "rm -rf dist",
