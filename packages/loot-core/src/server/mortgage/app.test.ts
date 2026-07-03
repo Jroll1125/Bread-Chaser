@@ -9,6 +9,7 @@ import { q } from '#shared/query';
 import type { TransactionEntity } from '#types/models';
 
 import {
+  getMortgagePayments,
   getMortgageSummary,
   parseStatements,
   previewMortgageSplit,
@@ -118,6 +119,80 @@ describe('mortgage split', () => {
 
     // Principal transferred into the mortgage account pays it down by $200.
     expect(await mortgageBalance()).toBe(-40_000_000 + 20_000);
+  });
+
+  it('links the Principal child as a real transfer with a mirror on the loan', async () => {
+    await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
+    await setEscrowPeriod({
+      accountId: 'mtg',
+      effectiveDate: '2026-01-01',
+      propertyTaxMonthly: 50_000,
+      homeInsuranceMonthly: 10_000,
+      pmiMonthly: 0,
+    });
+    await addPayment('pay1', -280_000, '2026-02-01');
+    await splitMortgagePayment({
+      transactionId: 'pay1',
+      mortgageAccountId: 'mtg',
+    });
+
+    // The Principal child carries a transfer_id pointing at its mirror.
+    const child = await db.first<{
+      id: string;
+      transferred_id: string | null;
+    }>(
+      `SELECT id, transferred_id FROM transactions
+        WHERE parent_id = 'pay1' AND notes = 'Principal' AND tombstone = 0`,
+    );
+    expect(child).toBeTruthy();
+    expect(child?.transferred_id).toBeTruthy();
+
+    // The mirror lives on the loan: +$200, linked back to the child. This is
+    // the transaction that actually pays the loan down.
+    const mirror = await db.first<{
+      id: string;
+      amount: number;
+      transferred_id: string | null;
+      acct: string;
+    }>(
+      `SELECT id, amount, transferred_id, acct FROM transactions
+        WHERE acct = 'mtg' AND amount > 0 AND tombstone = 0`,
+    );
+    expect(mirror?.id).toBe(child?.transferred_id);
+    expect(mirror?.amount).toBe(20_000);
+    expect(mirror?.transferred_id).toBe(child?.id);
+  });
+
+  it('lists payment history for the loan with per-category buckets', async () => {
+    await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
+    await setEscrowPeriod({
+      accountId: 'mtg',
+      effectiveDate: '2026-01-01',
+      propertyTaxMonthly: 50_000,
+      homeInsuranceMonthly: 10_000,
+      pmiMonthly: 0,
+    });
+    await addPayment('pay1', -280_000, '2026-02-01');
+    await splitMortgagePayment({
+      transactionId: 'pay1',
+      mortgageAccountId: 'mtg',
+    });
+
+    const rows = await getMortgagePayments({ accountId: 'mtg' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      fundingAccountId: 'chk',
+      fundingAccountName: 'Checking',
+      date: '2026-02-01',
+      total: 280_000,
+      interest: 200_000,
+      propertyTax: 50_000,
+      homeInsurance: 10_000,
+      pmi: 0,
+      principal: 20_000,
+      hasTransfer: true,
+      attachmentCount: 0,
+    });
   });
 
   it('uses the escrow amount in force on the payment date', async () => {

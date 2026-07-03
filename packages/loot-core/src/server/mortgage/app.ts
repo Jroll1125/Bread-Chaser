@@ -124,6 +124,7 @@ export type MortgageHandlers = {
   'mortgage-preview-split': typeof previewMortgageSplit;
   'mortgage-parse-statements': typeof parseStatements;
   'mortgage-split-payment': typeof splitMortgagePayment;
+  'mortgage-get-payments': typeof getMortgagePayments;
 };
 
 export const app = createApp<MortgageHandlers>();
@@ -135,6 +136,7 @@ app.method('mortgage-get-summary', getMortgageSummary);
 app.method('mortgage-preview-split', previewMortgageSplit);
 app.method('mortgage-parse-statements', parseStatements);
 app.method('mortgage-split-payment', mutator(undoable(splitMortgagePayment)));
+app.method('mortgage-get-payments', getMortgagePayments);
 
 async function getConfigRow(
   accountId: string,
@@ -595,7 +597,48 @@ export async function splitMortgagePayment({
     added: children,
   });
 
+  // The Principal child must come out the other side as a real transfer — a
+  // mirror transaction on the mortgage account, linked via transfer_id. That
+  // mirror is what actually pays the loan down; without it the split is
+  // cosmetic and the loan balance never moves.
+  const principalChildId = String(children[children.length - 1].id);
+  await ensurePrincipalTransfer(principalChildId, transferPayee.id);
+
   return { principal, interest, propertyTax, homeInsurance, pmi };
+}
+
+async function getRawTransferId(transactionId: string): Promise<string | null> {
+  const row = await db.first<{ transferred_id: string | null }>(
+    'SELECT transferred_id FROM transactions WHERE id = ?',
+    [transactionId],
+  );
+  return row?.transferred_id ?? null;
+}
+
+// Belt and suspenders for the split's loan side: verify the principal child
+// linked up as a transfer, and if the insert-time hook didn't materialize the
+// mirror, re-assert the transfer payee through the normal update path (which
+// runs the transfer hook). Still unlinked after that is an error worth
+// surfacing — a silently missing mirror is how loan balances drift.
+async function ensurePrincipalTransfer(
+  childId: string,
+  transferPayeeId: string,
+): Promise<void> {
+  if ((await getRawTransferId(childId)) != null) {
+    return;
+  }
+  await batchUpdateTransactions({
+    updated: [
+      { id: childId, payee: transferPayeeId },
+    ] as unknown as Partial<TransactionEntity>[],
+  });
+  if ((await getRawTransferId(childId)) == null) {
+    throw new Error(
+      'The Principal line did not link as a transfer into the mortgage ' +
+        'account, so the loan side of this payment is missing. Undo the ' +
+        'split and try again.',
+    );
+  }
 }
 
 export type StatementInput = { fileName: string; text: string };
@@ -800,4 +843,132 @@ export async function parseStatements({
   }
 
   return out;
+}
+
+export type MortgagePaymentRow = {
+  parentId: string;
+  fundingAccountId: string;
+  fundingAccountName: string;
+  date: string;
+  total: number;
+  interest: number;
+  propertyTax: number;
+  homeInsurance: number;
+  pmi: number;
+  principal: number;
+  // False means the Principal child never linked as a transfer, so this
+  // payment has no mirror on the loan — worth surfacing in the UI.
+  hasTransfer: boolean;
+  attachmentCount: number;
+};
+
+/**
+ * Every split payment that feeds this mortgage, seen from the loan's side:
+ * any split whose Principal child is addressed to this account's transfer
+ * payee, whether or not the mirror actually linked up. Powers the payment
+ * history on the mortgage account page.
+ */
+export async function getMortgagePayments({
+  accountId,
+}: {
+  accountId: string;
+}): Promise<MortgagePaymentRow[]> {
+  const config = await getConfigRow(accountId);
+  if (!config) {
+    return [];
+  }
+  const transferPayee = await db.first<{ id: string }>(
+    'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+    [accountId],
+  );
+  if (!transferPayee) {
+    return [];
+  }
+
+  const spines = await db.all<{
+    parent_id: string;
+    funding_acct: string;
+    funding_name: string | null;
+    pdate: number;
+    total: number;
+    principal: number;
+    transferred_id: string | null;
+  }>(
+    `SELECT p.id AS parent_id, p.acct AS funding_acct, a.name AS funding_name,
+            p.date AS pdate, p.amount AS total,
+            child.amount AS principal, child.transferred_id
+       FROM transactions child
+       JOIN transactions p ON p.id = child.parent_id
+       LEFT JOIN accounts a ON a.id = p.acct
+      WHERE child.description = ? AND child.isChild = 1
+        AND child.tombstone = 0 AND p.tombstone = 0
+      ORDER BY p.date DESC`,
+    [transferPayee.id],
+  );
+  if (spines.length === 0) {
+    return [];
+  }
+
+  const parentIds = spines.map(s => s.parent_id);
+  const placeholders = parentIds.map(() => '?').join(',');
+  const childRows = await db.all<{
+    parent_id: string;
+    category: string | null;
+    amount: number;
+  }>(
+    `SELECT parent_id, category, amount FROM transactions
+      WHERE parent_id IN (${placeholders}) AND isChild = 1 AND tombstone = 0`,
+    parentIds,
+  );
+  const attachRows = await db.all<{ transaction_id: string; n: number }>(
+    `SELECT transaction_id, COUNT(*) AS n FROM transaction_attachments
+      WHERE transaction_id IN (${placeholders}) AND tombstone = 0
+      GROUP BY transaction_id`,
+    parentIds,
+  );
+
+  const byParent = new Map<
+    string,
+    { interest: number; tax: number; ins: number; pmi: number }
+  >();
+  for (const c of childRows) {
+    const bucket = byParent.get(c.parent_id) ?? {
+      interest: 0,
+      tax: 0,
+      ins: 0,
+      pmi: 0,
+    };
+    const amt = Math.abs(c.amount);
+    if (c.category === config.interest_category) {
+      bucket.interest += amt;
+    } else if (c.category === config.property_tax_category) {
+      bucket.tax += amt;
+    } else if (c.category === config.home_insurance_category) {
+      bucket.ins += amt;
+    } else if (c.category === config.pmi_category) {
+      bucket.pmi += amt;
+    }
+    byParent.set(c.parent_id, bucket);
+  }
+  const attachCount = new Map(
+    attachRows.map(r => [r.transaction_id, r.n] as const),
+  );
+
+  return spines.map(s => {
+    const bucket = byParent.get(s.parent_id);
+    return {
+      parentId: s.parent_id,
+      fundingAccountId: s.funding_acct,
+      fundingAccountName: s.funding_name ?? 'Unknown account',
+      date: dateIntToYmd(s.pdate),
+      total: Math.abs(s.total),
+      interest: bucket?.interest ?? 0,
+      propertyTax: bucket?.tax ?? 0,
+      homeInsurance: bucket?.ins ?? 0,
+      pmi: bucket?.pmi ?? 0,
+      principal: Math.abs(s.principal),
+      hasTransfer: s.transferred_id != null,
+      attachmentCount: attachCount.get(s.parent_id) ?? 0,
+    };
+  });
 }
