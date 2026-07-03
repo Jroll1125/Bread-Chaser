@@ -7,6 +7,7 @@ import { Text } from '@actual-app/components/text';
 import { View } from '@actual-app/components/view';
 import type { AccountEntity } from '@actual-app/core/types/models';
 
+import { BankSyncCard } from '#components/breadchaser/BankSyncCard';
 import { MOBILE_NAV_HEIGHT } from '#components/mobile/MobileNavTabs';
 import { Page } from '#components/Page';
 import { useAccounts } from '#hooks/useAccounts';
@@ -98,6 +99,10 @@ export function BankSync() {
       }}
     >
       <View style={{ marginTop: '1em', gap: 24 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 15 }}>
+          <BankSyncCard />
+        </View>
+
         <BuiltInProviders
           providers={providers}
           syncServerStatus={syncServerStatus}

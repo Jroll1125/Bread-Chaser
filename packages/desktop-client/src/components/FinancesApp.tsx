@@ -24,7 +24,7 @@ import { useDispatch, useSelector } from '#redux';
 import { UserAccessPage } from './admin/UserAccess/UserAccessPage';
 import { UserDirectoryPage } from './admin/UserDirectory/UserDirectoryPage';
 import { BankSyncStatus } from './BankSyncStatus';
-import { BreadChaserPage } from './breadchaser/BreadChaserPage';
+import { EmailReceiptsPage } from './breadchaser/EmailReceiptsPage';
 import { CommandBar } from './CommandBar';
 import { EnableBankingCallback } from './EnableBankingCallback';
 import { FeatureErrorFallback } from './FeatureErrorFallback';
@@ -328,7 +328,10 @@ export function FinancesApp() {
                   />
                   <Route path="/tags" element={<ManageTagsPage />} />
                   <Route path="/settings" element={<Settings />} />
-                  <Route path="/bread-chaser" element={<BreadChaserPage />} />
+                  <Route
+                    path="/email-receipts"
+                    element={<EmailReceiptsPage />}
+                  />
 
                   <Route
                     path="/gocardless/link"

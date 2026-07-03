@@ -7,27 +7,11 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 import { send } from '@actual-app/core/platform/client/connection';
 
+import { Setting } from './UI';
+
 type Status = { port: number; url: string; hasKey: boolean };
 
-function Badge({ on }: { on: boolean }) {
-  const { t } = useTranslation();
-  return (
-    <Text
-      style={{
-        backgroundColor: on ? theme.noticeBackground : theme.pillBackground,
-        color: on ? theme.noticeText : theme.pillText,
-        borderRadius: 4,
-        padding: '2px 8px',
-        fontSize: 11,
-        flexShrink: 0,
-      }}
-    >
-      {on ? t('On') : t('Off')}
-    </Text>
-  );
-}
-
-export function LocalApiCard() {
+export function LocalApiSettings() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<Status | null>(null);
   const [key, setKey] = useState<string | null>(null);
@@ -94,45 +78,42 @@ export function LocalApiCard() {
   } as const;
 
   return (
-    <View
-      style={{
-        backgroundColor: theme.cardBackground,
-        border: `1px solid ${theme.tableBorder}`,
-        borderRadius: 6,
-        padding: 15,
-        gap: 10,
-        flexGrow: 1,
-        flexBasis: 250,
-      }}
+    <Setting
+      primaryAction={
+        <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+          <ButtonWithLoading
+            variant="primary"
+            isLoading={busy}
+            onPress={() => void onGenerate()}
+          >
+            {on ? (
+              <Trans>Regenerate key</Trans>
+            ) : (
+              <Trans>Generate API key</Trans>
+            )}
+          </ButtonWithLoading>
+          {on && (
+            <Button onPress={() => void onRevoke()}>
+              <Trans>Revoke</Trans>
+            </Button>
+          )}
+        </View>
+      }
     >
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 10,
-        }}
-      >
-        <Text style={{ fontSize: 15, fontWeight: 600, color: theme.pageText }}>
-          <Trans>Local API</Trans>
-        </Text>
-        <Badge on={on} />
-      </View>
-
-      <Text style={{ color: theme.pageTextSubdued, lineHeight: 1.5 }}>
+      <Text>
         <Trans>
-          A localhost REST API for scripts and tools to read and bulk-edit your
-          transactions. Generate a key to turn it on.
+          <strong>Local API</strong> is a localhost REST endpoint for scripts and
+          tools to read and bulk-edit your transactions. It stays off until you
+          generate a key, and is reachable only from this computer.
         </Trans>
       </Text>
 
       {on && (
-        <View style={{ gap: 6 }}>
+        <View style={{ gap: 6, width: '100%' }}>
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
-              justifyContent: 'space-between',
               gap: 8,
             }}
           >
@@ -145,36 +126,33 @@ export function LocalApiCard() {
             style={{
               flexDirection: 'row',
               alignItems: 'center',
-              justifyContent: 'space-between',
               gap: 8,
+              flexWrap: 'wrap',
             }}
           >
             <Text style={{ color: theme.pageTextSubdued, fontSize: 12 }}>
               <Trans>API key</Trans>
             </Text>
-            <Text style={{ ...mono, flexShrink: 1 }}>
+            <Text style={mono}>
               {key
                 ? revealed
                   ? key
                   : `${key.slice(0, 6)}${'•'.repeat(16)}`
                 : '—'}
             </Text>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
             <Button onPress={() => setRevealed(v => !v)}>
               {revealed ? <Trans>Hide</Trans> : <Trans>Reveal</Trans>}
             </Button>
             {key && (
               <Button onPress={() => copy(key)}>
-                <Trans>Copy key</Trans>
+                <Trans>Copy</Trans>
               </Button>
             )}
           </View>
-          <Text
-            style={{ color: theme.pageTextSubdued, fontSize: 11, marginTop: 4 }}
-          >
+          <Text style={{ color: theme.pageTextSubdued, fontSize: 11 }}>
             <Trans>
-              Send it as an Authorization: Bearer header. Try GET {{url}}/health.
+              Send it as an Authorization: Bearer header. Try GET {{ url }}
+              /health.
             </Trans>
           </Text>
         </View>
@@ -185,21 +163,6 @@ export function LocalApiCard() {
           {message}
         </Text>
       )}
-
-      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-        <ButtonWithLoading
-          variant="primary"
-          isLoading={busy}
-          onPress={() => void onGenerate()}
-        >
-          {on ? <Trans>Regenerate key</Trans> : <Trans>Generate API key</Trans>}
-        </ButtonWithLoading>
-        {on && (
-          <Button onPress={() => void onRevoke()}>
-            <Trans>Revoke</Trans>
-          </Button>
-        )}
-      </View>
-    </View>
+    </Setting>
   );
 }

@@ -7,7 +7,7 @@ import {
   SvgCheveronRight,
   SvgCog,
   SvgCreditCard,
-  SvgMoneyBag,
+  SvgEnvelope,
   SvgReports,
   SvgStoreFront,
   SvgTag,
@@ -30,6 +30,7 @@ export function PrimaryButtons() {
     '/payees',
     '/rules',
     '/bank-sync',
+    '/email-receipts',
     '/settings',
     '/tools',
   ].some(route => location.pathname.startsWith(route));
@@ -45,7 +46,6 @@ export function PrimaryButtons() {
       <Item title={t('Budget')} Icon={SvgWallet} to="/budget" />
       <Item title={t('Reports')} Icon={SvgReports} to="/reports" />
       <Item title={t('Schedules')} Icon={SvgCalendar3} to="/schedules" />
-      <Item title={t('Bread Chaser')} Icon={SvgMoneyBag} to="/bread-chaser" />
       <Item
         title={t('More')}
         Icon={isOpen ? SvgCheveronDown : SvgCheveronRight}
@@ -71,6 +71,12 @@ export function PrimaryButtons() {
             title={t('Bank Sync')}
             Icon={SvgCreditCard}
             to="/bank-sync"
+            indent={15}
+          />
+          <SecondaryItem
+            title={t('Email Receipts')}
+            Icon={SvgEnvelope}
+            to="/email-receipts"
             indent={15}
           />
           <SecondaryItem
