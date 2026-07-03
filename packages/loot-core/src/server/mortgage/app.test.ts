@@ -409,6 +409,41 @@ describe('mortgage statement import', () => {
     expect(p.principal).toBe(30_000); // 2800 - 2000 - 500
   });
 
+  it('offers attach-only for statements whose payment is already split', async () => {
+    await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
+    await setEscrowPeriod({
+      accountId: 'mtg',
+      effectiveDate: '2026-01-01',
+      propertyTaxMonthly: 40_000,
+      homeInsuranceMonthly: 10_000,
+      pmiMonthly: 0,
+    });
+    await addPayment('pay1', -280_000, '2026-02-01');
+    await splitMortgagePayment({
+      transactionId: 'pay1',
+      mortgageAccountId: 'mtg',
+    });
+
+    vi.mocked(extractStatement).mockResolvedValue({
+      interest: 200_000,
+      taxAndInsurance: 50_000,
+      principalBalance: 40_000_000,
+      statementDate: '2026-01-17',
+      dueDate: '2026-02-16',
+    });
+
+    const [p] = await parseStatements({
+      accountId: 'mtg',
+      statements: [{ fileName: 'jan.pdf', text: 'raw text' }],
+    });
+
+    // The payment exists but is a split parent now — no re-split, just an
+    // attach target.
+    expect(p.status).toBe('already-split');
+    expect(p.matchedTransactionId).toBe('pay1');
+    expect(p.payment).toBe(280_000);
+  });
+
   it('reports no-match when no payment fits the statement', async () => {
     await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
     vi.mocked(extractStatement).mockResolvedValue({

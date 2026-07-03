@@ -25,7 +25,7 @@ type MortgageImportModalProps = Extract<
 
 type Proposal = {
   fileName: string;
-  status: 'matched' | 'no-match' | 'extract-failed' | 'invalid';
+  status: 'matched' | 'already-split' | 'no-match' | 'extract-failed' | 'invalid';
   statementDate: string | null;
   dueDate: string | null;
   matchedTransactionId: string | null;
@@ -75,6 +75,7 @@ const fromCents = (c: number) => String(c / 100);
 
 const STATUS_LABEL: Record<Proposal['status'], string> = {
   matched: '',
+  'already-split': 'Payment already split — the statement PDF will be attached',
   'no-match': 'No matching payment found in your ledger',
   'extract-failed': 'Could not read this statement',
   invalid: 'Interest + escrow exceed the matched payment',
@@ -121,7 +122,7 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
           taxStr: fromCents(p.propertyTax),
           insStr: fromCents(p.homeInsurance),
           pmiStr: fromCents(p.pmi),
-          include: p.status === 'matched',
+          include: p.status === 'matched' || p.status === 'already-split',
           dataBase64: pdfData[idx] ?? '',
         })),
       );
@@ -146,24 +147,28 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
     setStep('applying');
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      if (!r.include || r.status !== 'matched' || !r.matchedTransactionId) {
+      const actionable = r.status === 'matched' || r.status === 'already-split';
+      if (!r.include || !actionable || !r.matchedTransactionId) {
         continue;
       }
       try {
-        await send('mortgage-split-payment', {
-          transactionId: r.matchedTransactionId,
-          mortgageAccountId: accountId,
-          overrides: {
-            interest: toCents(r.interestStr),
-            propertyTax: toCents(r.taxStr),
-            homeInsurance: toCents(r.insStr),
-            pmi: toCents(r.pmiStr),
-          },
-        });
+        // 'already-split' rows skip the split (it exists) and only attach.
+        if (r.status === 'matched') {
+          await send('mortgage-split-payment', {
+            transactionId: r.matchedTransactionId,
+            mortgageAccountId: accountId,
+            overrides: {
+              interest: toCents(r.interestStr),
+              propertyTax: toCents(r.taxStr),
+              homeInsurance: toCents(r.insStr),
+              pmi: toCents(r.pmiStr),
+            },
+          });
+        }
         update(i, { result: 'ok' });
 
-        // Attach the statement PDF to the payment it just split. sourceKey
-        // makes re-imports idempotent; a failed attach never fails the split.
+        // Attach the statement PDF to its payment. sourceKey makes re-imports
+        // idempotent; a failed attach never fails the split.
         if (r.dataBase64) {
           try {
             await send('attachments-add-data', {
@@ -197,7 +202,8 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
   };
 
   const includable = rows.filter(
-    r => r.include && r.status === 'matched',
+    r =>
+      r.include && (r.status === 'matched' || r.status === 'already-split'),
   ).length;
   const appliedOk = rows.filter(r => r.result === 'ok').length;
 
@@ -299,6 +305,7 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
                   <tbody>
                     {rows.map((r, i) => {
                       const matched = r.status === 'matched';
+                      const attachOnly = r.status === 'already-split';
                       const principal = principalOf(r);
                       const bad = matched && principal <= 0;
                       return (
@@ -306,7 +313,7 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
                           key={r.fileName + i}
                           style={{
                             borderBottom: '1px solid ' + theme.tableBorder,
-                            opacity: matched ? 1 : 0.6,
+                            opacity: matched || attachOnly ? 1 : 0.6,
                             backgroundColor:
                               r.result === 'ok'
                                 ? theme.noticeBackground
@@ -316,7 +323,7 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
                           }}
                         >
                           <td style={{ ...cell, textAlign: 'center' }}>
-                            {matched && (
+                            {(matched || attachOnly) && (
                               <input
                                 type="checkbox"
                                 checked={r.include}

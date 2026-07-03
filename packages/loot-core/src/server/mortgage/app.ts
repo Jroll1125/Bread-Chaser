@@ -645,7 +645,7 @@ export type StatementInput = { fileName: string; text: string };
 
 export type StatementProposal = {
   fileName: string;
-  status: 'matched' | 'no-match' | 'extract-failed' | 'invalid';
+  status: 'matched' | 'already-split' | 'no-match' | 'extract-failed' | 'invalid';
   statementDate: string | null;
   dueDate: string | null;
   matchedTransactionId: string | null;
@@ -715,6 +715,37 @@ async function findPaymentTransaction(
       mortgageAccountId,
       minAmount,
       minAmount + 200_000, // principal under $2,000
+      toDateInt(start),
+      toDateInt(end),
+      toDateInt(due),
+    ],
+  );
+  return rows[0] ?? null;
+}
+
+// A statement whose payment was split on an earlier import still has value —
+// its PDF can attach to the split parent. Same window/amount logic as
+// findPaymentTransaction, but over split parents.
+async function findSplitPaymentParent(
+  mortgageAccountId: string,
+  minAmount: number,
+  dueDate: string,
+): Promise<{ id: string; amount: number; date: number } | null> {
+  const due = parseYmd(dueDate);
+  const start = new Date(due);
+  start.setDate(start.getDate() - 20);
+  const end = new Date(due);
+  end.setDate(end.getDate() + 15);
+  const rows = await db.all<{ id: string; amount: number; date: number }>(
+    `SELECT id, amount, date FROM transactions
+      WHERE acct != ? AND isParent = 1 AND tombstone = 0
+        AND amount < 0 AND (-amount) > ? AND (-amount) <= ?
+        AND date >= ? AND date <= ?
+      ORDER BY ABS(date - ?) LIMIT 1`,
+    [
+      mortgageAccountId,
+      minAmount,
+      minAmount + 200_000,
       toDateInt(start),
       toDateInt(end),
       toDateInt(due),
@@ -797,6 +828,24 @@ export async function parseStatements({
       : null;
 
     if (!match) {
+      // Already split on an earlier pass? Offer to attach the PDF to it.
+      const splitParent = dueDate
+        ? await findSplitPaymentParent(accountId, minAmount, dueDate)
+        : null;
+      if (splitParent) {
+        out.push({
+          ...blank,
+          status: 'already-split',
+          statementDate: ext.statementDate,
+          dueDate,
+          matchedTransactionId: splitParent.id,
+          matchedDate: dateIntToYmd(splitParent.date),
+          payment: Math.abs(splitParent.amount),
+          interest: ext.interest,
+          taxAndInsurance: ext.taxAndInsurance,
+        });
+        continue;
+      }
       out.push({
         ...blank,
         status: 'no-match',
