@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { Button, ButtonWithLoading } from '@actual-app/components/button';
@@ -45,6 +45,18 @@ type Config = {
 const toCents = (v: string) => Math.round((parseFloat(v) || 0) * 100);
 const fromCents = (c: number) => (c ? String(c / 100) : '');
 
+// Native date input — renders in the user's locale (MM/DD/YYYY here), stores
+// yyyy-mm-dd. Matches the escrow modal / register date handling.
+const dateInputStyle = {
+  height: 36,
+  padding: '0 10px',
+  border: '1px solid ' + theme.formInputBorder,
+  borderRadius: 4,
+  backgroundColor: theme.tableBackground,
+  color: theme.pageText,
+  colorScheme: 'light dark',
+} as const;
+
 type EditableLine = { name: string; category: string | null; amountStr: string };
 type EditableDeposit = { accountId: string; amountStr: string };
 
@@ -78,6 +90,26 @@ function LineSection({
   const update = (i: number, patch: Partial<EditableLine>) =>
     onChange(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const [focusIndex, setFocusIndex] = useState<number | null>(null);
+  useEffect(() => {
+    if (focusIndex != null) {
+      inputRefs.current[focusIndex]?.focus();
+      setFocusIndex(null);
+    }
+  }, [focusIndex, lines.length]);
+
+  // Enter in an amount field hops to the next line's amount (adding a line at
+  // the end) — fast keyboard entry for taxes/earnings.
+  const onEnterLine = (i: number) => {
+    if (i < lines.length - 1) {
+      inputRefs.current[i + 1]?.focus();
+    } else {
+      onChange([...lines, { name: '', category: null, amountStr: '' }]);
+      setFocusIndex(lines.length);
+    }
+  };
+
   return (
     <View style={{ gap: 4 }}>
       <Text style={{ fontWeight: 600, fontSize: 13 }}>{title}</Text>
@@ -93,9 +125,13 @@ function LineSection({
             style={{ flex: 1 }}
           />
           <Input
+            ref={el => {
+              inputRefs.current[i] = el;
+            }}
             value={line.amountStr}
             placeholder="0.00"
             onChangeValue={v => update(i, { amountStr: v })}
+            onEnter={() => onEnterLine(i)}
             style={{ width: 100, textAlign: 'right' }}
           />
           <Button
@@ -303,10 +339,11 @@ export function PaycheckModal({ configId }: PaycheckModalProps = {}) {
                 <Text style={{ fontSize: 12, color: theme.pageTextSubdued }}>
                   <Trans>Next pay date</Trans>
                 </Text>
-                <Input
+                <input
+                  type="date"
                   value={nextDate}
-                  placeholder="yyyy-mm-dd"
-                  onChangeValue={setNextDate}
+                  onChange={e => setNextDate(e.target.value)}
+                  style={dateInputStyle}
                 />
               </View>
             </View>
@@ -452,11 +489,11 @@ export function PaycheckModal({ configId }: PaycheckModalProps = {}) {
               <Text style={{ fontSize: 12, color: theme.pageTextSubdued }}>
                 <Trans>Enter a paycheck dated</Trans>
               </Text>
-              <Input
+              <input
+                type="date"
                 value={entryDate}
-                placeholder="yyyy-mm-dd"
-                onChangeValue={setEntryDate}
-                style={{ width: 110 }}
+                onChange={e => setEntryDate(e.target.value)}
+                style={{ ...dateInputStyle, width: 150 }}
               />
               <ButtonWithLoading
                 variant="primary"
