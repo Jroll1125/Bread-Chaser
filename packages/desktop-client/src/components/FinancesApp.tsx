@@ -25,6 +25,7 @@ import { UserAccessPage } from './admin/UserAccess/UserAccessPage';
 import { UserDirectoryPage } from './admin/UserDirectory/UserDirectoryPage';
 import { BankSyncStatus } from './BankSyncStatus';
 import { EmailReceiptsPage } from './breadchaser/EmailReceiptsPage';
+import { CategoriesPage } from './categories/CategoriesPage';
 import { CommandBar } from './CommandBar';
 import { EnableBankingCallback } from './EnableBankingCallback';
 import { FeatureErrorFallback } from './FeatureErrorFallback';
@@ -332,6 +333,7 @@ export function FinancesApp() {
                     path="/email-receipts"
                     element={<EmailReceiptsPage />}
                   />
+                  <Route path="/categories" element={<CategoriesPage />} />
 
                   <Route
                     path="/gocardless/link"

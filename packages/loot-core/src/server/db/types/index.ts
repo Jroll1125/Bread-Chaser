@@ -51,6 +51,8 @@ export type DbCategory = {
   cat_group: DbCategoryGroup['id'];
   sort_order: number;
   hidden: 1 | 0;
+  exclude_from_budget?: 1 | 0;
+  exclude_from_totals?: 1 | 0;
   goal_def?: JsonString | null;
   cleanup_def?: JsonString | null;
   template_settings?: { source: 'notes' | 'ui' };

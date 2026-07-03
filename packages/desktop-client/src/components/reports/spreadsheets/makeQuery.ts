@@ -50,6 +50,7 @@ export function makeQuery(
       { date: intervalGroup },
       { category: { $id: '$category.id' } },
       { categoryHidden: { $id: '$category.hidden' } },
+      { categoryExcludeFromTotals: { $id: '$category.exclude_from_totals' } },
       { categoryIncome: { $id: '$category.is_income' } },
       { categoryGroup: { $id: '$category.group.id' } },
       { categoryGroupHidden: { $id: '$category.group.hidden' } },

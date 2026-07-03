@@ -266,10 +266,21 @@ export async function doTransfer(categoryIds, transferId) {
 }
 
 export async function createBudget(months) {
-  const { data: groups }: { data: CategoryGroupEntity[] } = await aqlQuery(
+  const { data: rawGroups }: { data: CategoryGroupEntity[] } = await aqlQuery(
     q('category_groups').select('*'),
   );
-  const categories = groups.flatMap(group => group.categories);
+  // Lunch Money-style flags: a category excluded from the budget gets no
+  // cells at all, and a category excluded from totals keeps its own cells
+  // but drops out of every group/overall aggregate.
+  const groups = rawGroups.map(group => ({
+    ...group,
+    categories: (group.categories || []).filter(
+      cat => !cat.exclude_from_budget && !cat.exclude_from_totals,
+    ),
+  }));
+  const categories = rawGroups
+    .flatMap(group => group.categories || [])
+    .filter(cat => !cat.exclude_from_budget);
 
   sheet.startTransaction();
   const meta = sheet.get().meta();

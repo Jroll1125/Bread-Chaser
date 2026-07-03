@@ -17,6 +17,9 @@ export function filterHiddenItems(
         showHiddenCategories ||
         (e.categoryHidden === false && e.categoryGroupHidden === false),
     )
+    // Excluded-from-totals categories never count in report sums, no matter
+    // which visibility toggles are on.
+    .filter(e => e.categoryExcludeFromTotals !== true)
     .filter(e => showOffBudget || e.accountOffBudget === false)
     .filter(
       e =>

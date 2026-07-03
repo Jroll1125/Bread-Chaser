@@ -29,6 +29,7 @@ export function PrimaryButtons() {
   const isActive = [
     '/payees',
     '/rules',
+    '/categories',
     '/bank-sync',
     '/email-receipts',
     '/settings',
@@ -65,6 +66,12 @@ export function PrimaryButtons() {
             title={t('Rules')}
             Icon={SvgTuning}
             to="/rules"
+            indent={15}
+          />
+          <SecondaryItem
+            title={t('Categories')}
+            Icon={SvgTag}
+            to="/categories"
             indent={15}
           />
           <SecondaryItem

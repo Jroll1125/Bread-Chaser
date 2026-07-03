@@ -11,4 +11,8 @@ export type CategoryEntity = {
   sort_order?: number;
   tombstone?: boolean;
   hidden?: boolean;
+  // Lunch Money-style behavior flags: not budgeted at all / omitted from
+  // report and group totals.
+  exclude_from_budget?: boolean;
+  exclude_from_totals?: boolean;
 };

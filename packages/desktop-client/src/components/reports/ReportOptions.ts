@@ -282,6 +282,7 @@ export type QueryDataEntity = {
   date: string;
   category: string;
   categoryHidden: boolean;
+  categoryExcludeFromTotals?: boolean;
   categoryGroup: string;
   categoryGroupHidden: boolean;
   account: string;

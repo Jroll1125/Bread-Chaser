@@ -99,7 +99,8 @@ export const BudgetCategories = memo<BudgetCategoriesProps>(
           }
 
           const groupCategories = group.categories?.filter(
-            cat => showHiddenCategories || !cat.hidden,
+            cat =>
+              !cat.exclude_from_budget && (showHiddenCategories || !cat.hidden),
           );
 
           const items: BudgetItem[] = [
@@ -144,7 +145,9 @@ export const BudgetCategories = memo<BudgetCategoriesProps>(
           ...(collapsedGroupIds.includes(incomeGroup.id)
             ? []
             : incomeGroup.categories?.filter(
-                cat => showHiddenCategories || !cat.hidden,
+                cat =>
+                  !cat.exclude_from_budget &&
+                  (showHiddenCategories || !cat.hidden),
               ) || []
           ).map(
             (cat): BudgetItem => ({
