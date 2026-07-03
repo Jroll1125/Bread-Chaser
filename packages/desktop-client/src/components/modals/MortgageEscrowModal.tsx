@@ -8,8 +8,10 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 import { send } from '@actual-app/core/platform/client/connection';
 import { currentDay } from '@actual-app/core/shared/months';
+import { format as formatDate, parseISO } from 'date-fns';
 
 import { Error as ErrorAlert } from '#components/alerts';
+import { useDateFormat } from '#hooks/useDateFormat';
 import {
   Modal,
   ModalCloseButton,
@@ -44,6 +46,7 @@ function toCents(v: string): number {
 
 export function MortgageEscrowModal({ accountId }: MortgageEscrowModalProps) {
   const { t } = useTranslation();
+  const dateFormat = useDateFormat() || 'MM/dd/yyyy';
   const [periods, setPeriods] = useState<Period[]>([]);
   const [effectiveDate, setEffectiveDate] = useState(currentDay());
   const [tax, setTax] = useState('');
@@ -143,7 +146,15 @@ export function MortgageEscrowModal({ accountId }: MortgageEscrowModalProps) {
                           {money(total)}/mo
                           <Text style={{ color: theme.pageTextSubdued }}>
                             {' '}
-                            <Trans>from {{ date: p.effectiveDate }}</Trans>
+                            <Trans>
+                              from{' '}
+                              {{
+                                date: formatDate(
+                                  parseISO(p.effectiveDate),
+                                  dateFormat,
+                                ),
+                              }}
+                            </Trans>
                           </Text>
                         </Text>
                         <Text

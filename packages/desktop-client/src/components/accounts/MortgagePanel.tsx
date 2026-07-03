@@ -7,12 +7,14 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 import { listen, send } from '@actual-app/core/platform/client/connection';
 import { currentDay } from '@actual-app/core/shared/months';
+import { format as formatDate, parseISO } from 'date-fns';
 import {
   addMonths,
   buildSchedule,
   computePayment,
   escrowForDate,
   escrowTotal,
+  payoffMonths,
   payoffSavings,
 } from '@actual-app/core/shared/mortgage';
 import type { AccountEntity } from '@actual-app/core/types/models';
@@ -22,6 +24,7 @@ import {
   ColumnWidthsProvider,
   useColumnWidth,
 } from '#components/table/columnResize';
+import { useDateFormat } from '#hooks/useDateFormat';
 import { useNavigate } from '#hooks/useNavigate';
 import { pushModal } from '#modals/modalsSlice';
 import { useDispatch } from '#redux';
@@ -49,7 +52,9 @@ type Summary = {
   originalPrincipal: number | null;
   principalPaid: number | null;
   interestPaid: number;
+  interestPaidYTD: number;
   taxPaid: number;
+  taxPaidYTD: number;
   insurancePaid: number;
   pmiPaid: number;
   escrowPaid: number;
@@ -108,6 +113,9 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const dateFormat = useDateFormat() || 'MM/dd/yyyy';
+  const fmtDate = (d: string | null | undefined) =>
+    d ? formatDate(parseISO(d), dateFormat) : '';
   const [config, setConfig] = useState<Config | null | undefined>(undefined);
   const [summary, setSummary] = useState<Summary | null | undefined>(undefined);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
@@ -207,6 +215,13 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
     borderRadius: 8,
     padding: '10px 12px',
   } as const;
+  const detailCard = {
+    flex: '1 1 200px',
+    border: '1px solid ' + theme.tableBorder,
+    borderRadius: 8,
+    padding: '10px 12px',
+    gap: 6,
+  } as const;
 
   if (config === undefined || summary === undefined) {
     return null; // loading
@@ -254,6 +269,10 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
           0,
           Math.min(100, (summary.principalPaid / config.originalPrincipal) * 100),
         )
+      : null;
+  const remainingPayments =
+    effectivePI != null
+      ? payoffMonths(summary.balance, config.annualInterestRate, effectivePI)
       : null;
 
   const savings = effectivePI
@@ -351,27 +370,54 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
 
       {/* Paid-to-date + escrow */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <View
-          style={{
-            flex: '1 1 220px',
-            border: '1px solid ' + theme.tableBorder,
-            borderRadius: 8,
-            padding: '10px 12px',
-            gap: 6,
-          }}
-        >
+        {/* Interest & Principal — lifetime + YTD */}
+        <View style={detailCard}>
           <Text style={{ fontWeight: 500 }}>
-            <Trans>Paid so far</Trans>
+            <Trans>Interest & Principal</Trans>
           </Text>
-          <Row label={t('Interest')} value={moneyCents(summary.interestPaid)} />
           <Row
-            label={t('Principal')}
+            label={t('Interest paid')}
+            value={moneyCents(summary.interestPaid)}
+          />
+          <Row
+            label={t('Interest YTD')}
+            value={moneyCents(summary.interestPaidYTD)}
+          />
+          <Row
+            label={t('Principal paid')}
             value={moneyCents(summary.principalPaid ?? 0)}
           />
+        </View>
+
+        {/* Tax & Insurance — lifetime + YTD */}
+        <View style={detailCard}>
+          <Text style={{ fontWeight: 500 }}>
+            <Trans>Tax & Insurance</Trans>
+          </Text>
+          <Row label={t('Taxes paid')} value={moneyCents(summary.taxPaid)} />
+          <Row label={t('Taxes YTD')} value={moneyCents(summary.taxPaidYTD)} />
           <Row
-            label={t('Taxes & insurance')}
-            value={moneyCents(summary.escrowPaid)}
+            label={t('Insurance paid')}
+            value={moneyCents(summary.insurancePaid + summary.pmiPaid)}
           />
+        </View>
+
+        {/* Remaining payments */}
+        <View style={detailCard}>
+          <Text style={{ fontWeight: 500 }}>
+            <Trans>Remaining payments</Trans>
+          </Text>
+          <Text style={{ fontSize: 20, fontWeight: 500 }}>
+            {remainingPayments != null ? remainingPayments : '—'}
+          </Text>
+          {remainingPayments != null && remainingPayments > 0 && (
+            <Text style={{ fontSize: 11, color: theme.pageTextSubdued }}>
+              {t('≈ {{yrs}}y {{mos}}m left', {
+                yrs: Math.floor(remainingPayments / 12),
+                mos: remainingPayments % 12,
+              })}
+            </Text>
+          )}
         </View>
 
         <View
@@ -408,7 +454,7 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
           {latestPeriod && (
             <Row
               label={t('In effect since')}
-              value={latestPeriod.effectiveDate}
+              value={fmtDate(latestPeriod.effectiveDate)}
             />
           )}
           <Row
@@ -466,6 +512,11 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
                   <Trans>From</Trans>
                 </Text>
               </ResizableCol>
+              <ResizableCol col="principal" flex={1} grip>
+                <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+                  <Trans>Principal</Trans>
+                </Text>
+              </ResizableCol>
               <ResizableCol col="interest" flex={1} grip>
                 <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
                   <Trans>Interest</Trans>
@@ -474,11 +525,6 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
               <ResizableCol col="escrow" flex={1} grip>
                 <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
                   <Trans>Escrow</Trans>
-                </Text>
-              </ResizableCol>
-              <ResizableCol col="principal" flex={1} grip>
-                <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
-                  <Trans>Principal</Trans>
                 </Text>
               </ResizableCol>
               <ResizableCol col="total" flex={1} grip>
@@ -499,7 +545,7 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
                 }}
               >
                 <ResizableCol col="paid" flex={1.4}>
-                  <Text style={{ fontSize: 12 }}>{p.date}</Text>
+                  <Text style={{ fontSize: 12 }}>{fmtDate(p.date)}</Text>
                 </ResizableCol>
                 <ResizableCol
                   col="from"
@@ -524,6 +570,11 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
                     </Text>
                   )}
                 </ResizableCol>
+                <ResizableCol col="principal" flex={1}>
+                  <Text style={{ fontSize: 12, textAlign: 'right', fontWeight: 500 }}>
+                    {moneyCents(p.principal)}
+                  </Text>
+                </ResizableCol>
                 <ResizableCol col="interest" flex={1}>
                   <Text style={{ fontSize: 12, textAlign: 'right' }}>
                     {moneyCents(p.interest)}
@@ -532,11 +583,6 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
                 <ResizableCol col="escrow" flex={1}>
                   <Text style={{ fontSize: 12, textAlign: 'right' }}>
                     {moneyCents(p.propertyTax + p.homeInsurance + p.pmi)}
-                  </Text>
-                </ResizableCol>
-                <ResizableCol col="principal" flex={1}>
-                  <Text style={{ fontSize: 12, textAlign: 'right', fontWeight: 500 }}>
-                    {moneyCents(p.principal)}
                   </Text>
                 </ResizableCol>
                 <ResizableCol col="total" flex={1}>

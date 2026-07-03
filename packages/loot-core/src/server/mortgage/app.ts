@@ -8,6 +8,7 @@ import { extractStatement } from '#server/mortgage/statement-extract';
 import { mutator } from '#server/mutators';
 import { batchUpdateTransactions } from '#server/transactions';
 import { undoable } from '#server/undo';
+import { currentDay } from '#shared/months';
 import {
   buildSchedule,
   escrowForDate,
@@ -102,7 +103,9 @@ export type MortgageSummary = {
   originalPrincipal: number | null;
   principalPaid: number | null;
   interestPaid: number;
+  interestPaidYTD: number;
   taxPaid: number;
+  taxPaidYTD: number;
   insurancePaid: number;
   pmiPaid: number;
   escrowPaid: number;
@@ -344,6 +347,20 @@ async function sumCategory(category: string | null): Promise<number> {
   return Math.abs(row?.s ?? 0);
 }
 
+// Year-to-date sum for a category. `transactions.date` is an integer yyyymmdd,
+// so the current-year floor is year*10000 + 0101.
+async function sumCategoryYTD(category: string | null): Promise<number> {
+  if (!category) {
+    return 0;
+  }
+  const yearStart = Number(currentDay().slice(0, 4)) * 10000 + 101;
+  const row = await db.first<{ s: number | null }>(
+    'SELECT sum(amount) AS s FROM transactions WHERE category = ? AND date >= ? AND tombstone = 0',
+    [category, yearStart],
+  );
+  return Math.abs(row?.s ?? 0);
+}
+
 export async function getMortgageSummary({
   accountId,
 }: {
@@ -355,7 +372,9 @@ export async function getMortgageSummary({
   }
   const balance = await currentPrincipal(accountId);
   const interestPaid = await sumCategory(row.interest_category);
+  const interestPaidYTD = await sumCategoryYTD(row.interest_category);
   const taxPaid = await sumCategory(row.property_tax_category);
+  const taxPaidYTD = await sumCategoryYTD(row.property_tax_category);
   const insurancePaid = await sumCategory(row.home_insurance_category);
   const pmiPaid = await sumCategory(row.pmi_category);
   const originalPrincipal = row.original_principal ?? null;
@@ -365,7 +384,9 @@ export async function getMortgageSummary({
     principalPaid:
       originalPrincipal != null ? originalPrincipal - balance : null,
     interestPaid,
+    interestPaidYTD,
     taxPaid,
+    taxPaidYTD,
     insurancePaid,
     pmiPaid,
     escrowPaid: taxPaid + insurancePaid + pmiPaid,
