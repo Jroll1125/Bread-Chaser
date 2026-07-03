@@ -31,6 +31,7 @@ import {
   getApiKey,
   LOCAL_API_PORT,
 } from './local-api/app';
+import { app as autocatApp } from './autocat/app';
 import { app as mortgageApp } from './mortgage/app';
 import { mutator, runHandler } from './mutators';
 import { app as notesApp } from './notes/app';
@@ -162,6 +163,7 @@ app.combine(
   attachmentsApp,
   mortgageApp,
   paycheckApp,
+  autocatApp,
   localApiApp,
 );
 

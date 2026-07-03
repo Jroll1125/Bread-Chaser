@@ -1,6 +1,7 @@
 import type { AccountHandlers } from '#server/accounts/app';
 import type { AdminHandlers } from '#server/admin/app';
 import type { AttachmentsHandlers } from '#server/attachments/app';
+import type { AutocatHandlers } from '#server/autocat/app';
 import type { LocalApiHandlers } from '#server/local-api/app';
 import type { MortgageHandlers } from '#server/mortgage/app';
 import type { PaycheckHandlers } from '#server/paycheck/app';
@@ -53,6 +54,7 @@ export type Handlers = {} & ServerHandlers &
   AttachmentsHandlers &
   MortgageHandlers &
   PaycheckHandlers &
+  AutocatHandlers &
   LocalApiHandlers;
 
 export type HandlerFunctions = Handlers[keyof Handlers];

@@ -14,6 +14,7 @@ import type {
 } from '@actual-app/core/types/models';
 
 import { Error as ErrorAlert } from '#components/alerts';
+import { AutoCategorizePanel } from '#components/categories/AutoCategorizePanel';
 import { MOBILE_NAV_HEIGHT } from '#components/mobile/MobileNavTabs';
 import { Page } from '#components/Page';
 import { useCategories } from '#hooks/useCategories';
@@ -163,6 +164,8 @@ export function CategoriesPage() {
         </Text>
 
         {error && <ErrorAlert>{error}</ErrorAlert>}
+
+        <AutoCategorizePanel />
 
         {groups.map(group => (
           <View
