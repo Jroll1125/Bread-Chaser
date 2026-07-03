@@ -25,6 +25,7 @@ import type {
   SaveDialogOptions,
   UtilityProcess,
 } from 'electron';
+import { autoUpdater } from 'electron-updater';
 
 import { getMenu } from './menu';
 import { retry as promiseRetry } from './retry';
@@ -73,6 +74,10 @@ let syncServerProcess: UtilityProcess | null;
 
 let oAuthServer: ReturnType<typeof createServer> | null;
 
+// Set once electron-updater has fully downloaded a newer release; it then
+// installs on quit (or immediately when the user picks "Update now").
+let updateDownloaded = false;
+
 let queuedClientWinLogs: string[] = []; // logs that are queued up until the client window is ready
 
 const logMessage = (loglevel: 'info' | 'error', message: string) => {
@@ -90,6 +95,42 @@ const logMessage = (loglevel: 'info' | 'error', message: string) => {
     );
   }
 };
+
+// Auto-update from the fork's GitHub releases (publish provider in
+// package.json build.publish). Downloads in the background and installs on
+// quit; the renderer's "Update now" banner can also apply it immediately.
+// Errors (e.g. no release published yet, or a private repo) are logged, not
+// fatal.
+function setupAutoUpdater() {
+  if (isDev || isPlaywrightTest) {
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('error', err => {
+    logMessage('error', `Auto-update: ${err?.message ?? String(err)}`);
+  });
+  autoUpdater.on('update-available', info => {
+    logMessage('info', `Auto-update: update available (${info.version})`);
+  });
+  autoUpdater.on('update-not-available', () => {
+    logMessage('info', 'Auto-update: already up to date');
+  });
+  autoUpdater.on('update-downloaded', info => {
+    updateDownloaded = true;
+    logMessage(
+      'info',
+      `Auto-update: downloaded ${info.version}; will install on quit`,
+    );
+    clientWin?.webContents.send('update-downloaded', info);
+  });
+
+  void autoUpdater.checkForUpdates().catch(err => {
+    logMessage('error', `Auto-update: check failed: ${err?.message ?? err}`);
+  });
+}
 
 const createOAuthServer = async () => {
   const port = 3010;
@@ -646,6 +687,8 @@ app.on('ready', async () => {
     await createWindow();
   }
 
+  setupAutoUpdater();
+
   // This is mainly to aid debugging Sentry errors - it will add a
   // breadcrumb
   powerMonitor.on('suspend', () => {
@@ -776,6 +819,13 @@ ipcMain.handle('open-path-in-default-app', (event, filepath) => {
   // already absolute, as it is in production). The loot-core utility process
   // shares this process's cwd, so relative paths resolve to the same place.
   return shell.openPath(path.resolve(filepath));
+});
+
+ipcMain.handle('apply-app-update', () => {
+  // Restart into the freshly downloaded version. No-op if nothing is ready.
+  if (updateDownloaded) {
+    autoUpdater.quitAndInstall();
+  }
 });
 
 ipcMain.on('message', (_event, msg) => {

@@ -11,6 +11,16 @@ import type {
 const { version: VERSION, isDev: IS_DEV }: GetBootstrapDataPayload =
   ipcRenderer.sendSync('get-bootstrap-data');
 
+// Auto-update state, mirrored from the main process. Main fires
+// 'update-downloaded' once electron-updater has a newer release staged; the
+// renderer's existing update banner reads these to offer "Update now".
+let updateReady = false;
+const updateReadyWaiters: Array<() => void> = [];
+ipcRenderer.on('update-downloaded', () => {
+  updateReady = true;
+  updateReadyWaiters.splice(0).forEach(resolve => resolve());
+});
+
 contextBridge.exposeInMainWorld('Actual', {
   IS_DEV,
   ACTUAL_VERSION: VERSION,
@@ -79,11 +89,15 @@ contextBridge.exposeInMainWorld('Actual', {
     ipcRenderer.on(type, handler);
   },
 
-  // No auto-updates in the desktop app
-  isUpdateReadyForDownload: () => false,
+  // Driven by electron-updater in the main process.
+  isUpdateReadyForDownload: () => updateReady,
   waitForUpdateReadyForDownload: () =>
-    new Promise<void>(() => {
-      // This is used in browser environment; do nothing in electron
+    new Promise<void>(resolve => {
+      if (updateReady) {
+        resolve();
+      } else {
+        updateReadyWaiters.push(resolve);
+      }
     }),
 
   getServerSocket: async () => {
@@ -110,6 +124,6 @@ contextBridge.exposeInMainWorld('Actual', {
   },
 
   applyAppUpdate: async () => {
-    throw new Error('applyAppUpdate not implemented in electron app');
+    await ipcRenderer.invoke('apply-app-update');
   },
 } satisfies typeof global.Actual);

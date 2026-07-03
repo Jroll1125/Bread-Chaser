@@ -1,6 +1,6 @@
 {
   "name": "desktop-electron",
-  "version": "26.6.0",
+  "version": "26.6.1",
   "description": "Bread Chaser — a personal finance app by Rock Run Industries",
   "author": "Rock Run Industries",
   "main": "build/desktop-electron/index.js",
@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@actual-app/sync-server": "workspace:*",
-    "better-sqlite3": "^12.10.0"
+    "better-sqlite3": "^12.10.0",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@actual-app/core": "workspace:*",
@@ -33,6 +34,11 @@
   },
   "build": {
     "appId": "com.breadchaser.app",
+    "publish": {
+      "provider": "github",
+      "owner": "Jroll1125",
+      "repo": "Bread-Chaser"
+    },
     "files": [
       "build",
       "!node_modules/@actual-app/web",
