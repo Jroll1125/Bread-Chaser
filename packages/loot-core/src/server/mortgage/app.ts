@@ -3,10 +3,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { aqlQuery } from '#server/aql';
 import { createApp } from '#server/app';
 import * as db from '#server/db';
+import { getLlmSettings } from '#server/email/receipts';
+import { extractStatement } from '#server/mortgage/statement-extract';
 import { mutator } from '#server/mutators';
 import { batchUpdateTransactions } from '#server/transactions';
 import { undoable } from '#server/undo';
 import {
+  buildSchedule,
   escrowForDate,
   monthlyInterest,
   type EscrowAmounts,
@@ -119,6 +122,7 @@ export type MortgageHandlers = {
   'mortgage-delete-escrow': typeof deleteEscrowPeriod;
   'mortgage-get-summary': typeof getMortgageSummary;
   'mortgage-preview-split': typeof previewMortgageSplit;
+  'mortgage-parse-statements': typeof parseStatements;
   'mortgage-split-payment': typeof splitMortgagePayment;
 };
 
@@ -129,6 +133,7 @@ app.method('mortgage-set-escrow', mutator(setEscrowPeriod));
 app.method('mortgage-delete-escrow', mutator(deleteEscrowPeriod));
 app.method('mortgage-get-summary', getMortgageSummary);
 app.method('mortgage-preview-split', previewMortgageSplit);
+app.method('mortgage-parse-statements', parseStatements);
 app.method('mortgage-split-payment', mutator(undoable(splitMortgagePayment)));
 
 async function getConfigRow(
@@ -383,20 +388,48 @@ async function resolveEscrow(
   };
 }
 
-function computeBreakdown(
+// Interest for a payment taken straight off the loan's amortization schedule
+// (from the entered terms), anchored by the payment's date. This is
+// authoritative even when the tracked account balance has drifted from the
+// servicer's — a Plaid-reported loan balance is frequently wrong, which would
+// otherwise compute interest on the wrong principal. Returns null when the
+// terms needed to build a schedule aren't set.
+function scheduledInterest(
   row: MortgageConfigRow,
+  paymentDate: string,
+): number | null {
+  if (!row.original_principal || !row.start_date || !row.pi_payment) {
+    return null;
+  }
+  const schedule = buildSchedule({
+    balance: row.original_principal,
+    annualRate: row.annual_interest_rate,
+    piPayment: row.pi_payment,
+    count: row.term_months ?? 360,
+    startDate: row.start_date,
+  });
+  const ym = paymentDate.slice(0, 7);
+  const match = schedule.find(r => r.date?.slice(0, 7) === ym);
+  if (match) {
+    return match.interest;
+  }
+  // A payment dated before the schedule starts uses the first month's interest.
+  if (schedule.length > 0 && paymentDate < (schedule[0].date ?? '')) {
+    return schedule[0].interest;
+  }
+  return null;
+}
+
+function computeBreakdown(
   paymentAbs: number,
-  balance: number,
+  defaultInterest: number,
   escrow: EscrowAmounts,
   overrides?: SplitOverrides,
 ): Omit<MortgageBreakdown, 'paymentAmount' | 'date'> {
   const pick = (override: number | undefined, fallback: number) =>
     override != null ? Math.round(override) : fallback;
 
-  const interest = pick(
-    overrides?.interest,
-    monthlyInterest(balance, row.annual_interest_rate),
-  );
+  const interest = pick(overrides?.interest, defaultInterest);
   const propertyTax = pick(overrides?.propertyTax, escrow.propertyTaxMonthly);
   const homeInsurance = pick(
     overrides?.homeInsurance,
@@ -442,7 +475,10 @@ export async function previewMortgageSplit({
   const paymentAbs = Math.abs(txn.amount);
   const balance = await currentPrincipal(mortgageAccountId);
   const escrow = await resolveEscrow(mortgageAccountId, txn.date, config);
-  const breakdown = computeBreakdown(config, paymentAbs, balance, escrow);
+  const defaultInterest =
+    scheduledInterest(config, txn.date) ??
+    monthlyInterest(balance, config.annual_interest_rate);
+  const breakdown = computeBreakdown(paymentAbs, defaultInterest, escrow);
   return { paymentAmount: paymentAbs, date: txn.date, ...breakdown };
 }
 
@@ -464,8 +500,11 @@ export async function splitMortgagePayment({
   const paymentAbs = Math.abs(txn.amount);
   const balance = await currentPrincipal(mortgageAccountId);
   const escrow = await resolveEscrow(mortgageAccountId, txn.date, config);
+  const defaultInterest =
+    scheduledInterest(config, txn.date) ??
+    monthlyInterest(balance, config.annual_interest_rate);
   const { interest, propertyTax, homeInsurance, pmi, principal } =
-    computeBreakdown(config, paymentAbs, balance, escrow, overrides);
+    computeBreakdown(paymentAbs, defaultInterest, escrow, overrides);
 
   if (principal <= 0) {
     throw new Error(
@@ -557,4 +596,208 @@ export async function splitMortgagePayment({
   });
 
   return { principal, interest, propertyTax, homeInsurance, pmi };
+}
+
+export type StatementInput = { fileName: string; text: string };
+
+export type StatementProposal = {
+  fileName: string;
+  status: 'matched' | 'no-match' | 'extract-failed' | 'invalid';
+  statementDate: string | null;
+  dueDate: string | null;
+  matchedTransactionId: string | null;
+  matchedDate: string | null;
+  payment: number | null;
+  interest: number;
+  taxAndInsurance: number;
+  propertyTax: number;
+  homeInsurance: number;
+  pmi: number;
+  principal: number | null;
+};
+
+// Transactions store the date as an integer yyyymmdd; parse yyyy-mm-dd in local
+// time (never `new Date('yyyy-mm-dd')`, which is UTC and shifts a day).
+function parseYmd(s: string): Date {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function toDateInt(d: Date): number {
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+function dateIntToYmd(n: number): string {
+  const y = Math.floor(n / 10000);
+  const m = Math.floor((n % 10000) / 100);
+  const d = n % 100;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+// The "amount due" is the payment due the month after the statement, so derive
+// that due date from the statement date (which the model reads reliably); fall
+// back to whatever dueDate it returned.
+function deriveDueDate(ext: {
+  statementDate: string | null;
+  dueDate: string | null;
+}): string | null {
+  if (ext.statementDate) {
+    const [y, m] = ext.statementDate.split('-').map(Number);
+    const ny = m === 12 ? y + 1 : y;
+    const nm = m === 12 ? 1 : m + 1;
+    return `${ny}-${String(nm).padStart(2, '0')}-01`;
+  }
+  return ext.dueDate;
+}
+
+// The posted mortgage payment for a statement: a debit near the due date whose
+// amount leaves a positive, plausible principal after interest + escrow.
+async function findPaymentTransaction(
+  mortgageAccountId: string,
+  minAmount: number, // interest + escrow, cents (principal must be > 0)
+  dueDate: string,
+): Promise<{ id: string; amount: number; date: number } | null> {
+  const due = parseYmd(dueDate);
+  const start = new Date(due);
+  start.setDate(start.getDate() - 20);
+  const end = new Date(due);
+  end.setDate(end.getDate() + 15);
+  const rows = await db.all<{ id: string; amount: number; date: number }>(
+    `SELECT id, amount, date FROM transactions
+      WHERE acct != ? AND isParent = 0 AND isChild = 0 AND tombstone = 0
+        AND amount < 0 AND (-amount) > ? AND (-amount) <= ?
+        AND date >= ? AND date <= ?
+      ORDER BY ABS(date - ?) LIMIT 1`,
+    [
+      mortgageAccountId,
+      minAmount,
+      minAmount + 200_000, // principal under $2,000
+      toDateInt(start),
+      toDateInt(end),
+      toDateInt(due),
+    ],
+  );
+  return rows[0] ?? null;
+}
+
+// Split the statement's single Tax & Insurance figure into the user's
+// tax/insurance/PMI categories using the ratio configured for that date. With
+// no ratio set, it all goes to property tax (still one editable line in review).
+function allocateEscrow(
+  periods: MortgageEscrowPeriod[],
+  date: string,
+  totalTI: number,
+): { propertyTax: number; homeInsurance: number; pmi: number } {
+  const e = escrowForDate(periods, date);
+  const configTotal =
+    e.propertyTaxMonthly + e.homeInsuranceMonthly + e.pmiMonthly;
+  if (configTotal <= 0) {
+    return { propertyTax: totalTI, homeInsurance: 0, pmi: 0 };
+  }
+  const propertyTax = Math.round((totalTI * e.propertyTaxMonthly) / configTotal);
+  const homeInsurance = Math.round(
+    (totalTI * e.homeInsuranceMonthly) / configTotal,
+  );
+  return {
+    propertyTax,
+    homeInsurance,
+    pmi: totalTI - propertyTax - homeInsurance,
+  };
+}
+
+// Read a batch of statement texts with the local model and match each to its
+// posted payment, producing an editable proposal per statement. Read-only — the
+// user applies the ones they want from the review screen (via
+// mortgage-split-payment). A dead local model throws so the whole import stops
+// with a clear message rather than silently matching nothing.
+export async function parseStatements({
+  accountId,
+  statements,
+}: {
+  accountId: string;
+  statements: StatementInput[];
+}): Promise<StatementProposal[]> {
+  const config = await getConfigRow(accountId);
+  if (!config) {
+    throw new Error('Set up the mortgage terms for this account first.');
+  }
+  const { endpoint, model } = await getLlmSettings();
+  const periods = await getEscrowPeriods(accountId);
+  const out: StatementProposal[] = [];
+
+  for (const statement of statements) {
+    const blank = {
+      fileName: statement.fileName,
+      statementDate: null,
+      dueDate: null,
+      matchedTransactionId: null,
+      matchedDate: null,
+      payment: null,
+      interest: 0,
+      taxAndInsurance: 0,
+      propertyTax: 0,
+      homeInsurance: 0,
+      pmi: 0,
+      principal: null,
+    };
+
+    const ext = await extractStatement(statement.text, { endpoint, model });
+    if (!ext) {
+      out.push({ ...blank, status: 'extract-failed' });
+      continue;
+    }
+
+    const dueDate = deriveDueDate(ext);
+    const minAmount = ext.interest + ext.taxAndInsurance;
+    const match = dueDate
+      ? await findPaymentTransaction(accountId, minAmount, dueDate)
+      : null;
+
+    if (!match) {
+      out.push({
+        ...blank,
+        status: 'no-match',
+        statementDate: ext.statementDate,
+        dueDate,
+        interest: ext.interest,
+        taxAndInsurance: ext.taxAndInsurance,
+      });
+      continue;
+    }
+
+    const payment = Math.abs(match.amount);
+    const principal = payment - ext.interest - ext.taxAndInsurance;
+    const matchedDate = dateIntToYmd(match.date);
+    if (principal <= 0) {
+      out.push({
+        ...blank,
+        status: 'invalid',
+        statementDate: ext.statementDate,
+        dueDate,
+        matchedTransactionId: match.id,
+        matchedDate,
+        payment,
+        interest: ext.interest,
+        taxAndInsurance: ext.taxAndInsurance,
+      });
+      continue;
+    }
+
+    const escrow = allocateEscrow(periods, matchedDate, ext.taxAndInsurance);
+    out.push({
+      fileName: statement.fileName,
+      status: 'matched',
+      statementDate: ext.statementDate,
+      dueDate,
+      matchedTransactionId: match.id,
+      matchedDate,
+      payment,
+      interest: ext.interest,
+      taxAndInsurance: ext.taxAndInsurance,
+      ...escrow,
+      principal,
+    });
+  }
+
+  return out;
 }

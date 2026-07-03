@@ -1,18 +1,31 @@
 import { aqlQuery } from '#server/aql';
 import * as db from '#server/db';
 import { loadMappings } from '#server/db/mappings';
+import { extractStatement } from '#server/mortgage/statement-extract';
 import { batchUpdateTransactions } from '#server/transactions';
 import { loadRules } from '#server/transactions/transaction-rules';
+import { computePayment } from '#shared/mortgage';
 import { q } from '#shared/query';
 import type { TransactionEntity } from '#types/models';
 
 import {
   getMortgageSummary,
+  parseStatements,
   previewMortgageSplit,
   saveMortgageConfig,
   setEscrowPeriod,
   splitMortgagePayment,
 } from './app';
+
+// The statement import calls the local model + reads the shared LLM config;
+// mock both so these tests exercise matching/allocation, not a live Ollama.
+vi.mock('#server/mortgage/statement-extract', () => ({
+  extractStatement: vi.fn(),
+}));
+vi.mock('#server/email/receipts', () => ({
+  getLlmSettings: () =>
+    Promise.resolve({ endpoint: 'http://localhost:11434', model: 'test' }),
+}));
 
 // Declared untyped in mocks/setup.ts; this file is strict.
 const emptyDatabase = (
@@ -257,5 +270,95 @@ describe('mortgage split', () => {
     await expect(
       saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 6.5 }),
     ).rejects.toThrow(/fraction/i);
+  });
+
+  it('takes interest from the loan schedule, not a drifted account balance', async () => {
+    // Terms say $300k; the tracked account balance is -$400k (beforeEach). The
+    // schedule's first month bills interest on $300k ($1,500), not $400k
+    // ($2,000) — this is the fix for a Plaid balance that reads low.
+    await saveMortgageConfig({
+      accountId: 'mtg',
+      annualInterestRate: 0.06,
+      originalPrincipal: 30_000_000,
+      startDate: '2026-01-01',
+      termMonths: 360,
+      piPayment: computePayment(30_000_000, 0.06, 360),
+    });
+    await addPayment('pay1', -200_000, '2026-01-01');
+
+    const preview = await previewMortgageSplit({
+      transactionId: 'pay1',
+      mortgageAccountId: 'mtg',
+    });
+    expect(preview.interest).toBe(150_000);
+  });
+});
+
+describe('mortgage statement import', () => {
+  beforeEach(() => {
+    vi.mocked(extractStatement).mockReset();
+  });
+
+  it('matches a statement to its payment and splits escrow by the configured ratio', async () => {
+    await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
+    // Escrow ratio 4:1 tax:insurance.
+    await setEscrowPeriod({
+      accountId: 'mtg',
+      effectiveDate: '2026-01-01',
+      propertyTaxMonthly: 40_000,
+      homeInsuranceMonthly: 10_000,
+      pmiMonthly: 0,
+    });
+    await addPayment('pay1', -280_000, '2026-02-01'); // posted payment $2,800
+
+    vi.mocked(extractStatement).mockResolvedValue({
+      interest: 200_000, // $2,000
+      taxAndInsurance: 50_000, // $500
+      principalBalance: 40_000_000,
+      statementDate: '2026-01-17', // -> due 2026-02-01
+      dueDate: '2026-02-16',
+    });
+
+    const [p] = await parseStatements({
+      accountId: 'mtg',
+      statements: [{ fileName: 'jan.pdf', text: 'raw text' }],
+    });
+
+    expect(p.status).toBe('matched');
+    expect(p.matchedTransactionId).toBe('pay1');
+    expect(p.payment).toBe(280_000);
+    expect(p.interest).toBe(200_000);
+    expect(p.propertyTax).toBe(40_000); // $500 * 4/5
+    expect(p.homeInsurance).toBe(10_000); // $500 * 1/5
+    expect(p.pmi).toBe(0);
+    expect(p.principal).toBe(30_000); // 2800 - 2000 - 500
+  });
+
+  it('reports no-match when no payment fits the statement', async () => {
+    await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
+    vi.mocked(extractStatement).mockResolvedValue({
+      interest: 200_000,
+      taxAndInsurance: 50_000,
+      principalBalance: 40_000_000,
+      statementDate: '2026-01-17',
+      dueDate: '2026-02-16',
+    });
+
+    const [p] = await parseStatements({
+      accountId: 'mtg',
+      statements: [{ fileName: 'jan.pdf', text: 'raw text' }],
+    });
+    expect(p.status).toBe('no-match');
+  });
+
+  it('surfaces extraction failures instead of guessing', async () => {
+    await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
+    vi.mocked(extractStatement).mockResolvedValue(null);
+
+    const [p] = await parseStatements({
+      accountId: 'mtg',
+      statements: [{ fileName: 'blurry.pdf', text: 'raw text' }],
+    });
+    expect(p.status).toBe('extract-failed');
   });
 });

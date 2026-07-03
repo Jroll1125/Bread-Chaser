@@ -227,6 +227,20 @@ async function getConfig(): Promise<EmailReceiptsConfig | null> {
   };
 }
 
+// Local-AI endpoint/model on their own, reused by other local-AI features (the
+// mortgage statement import) so they share the user's one Ollama setup without
+// needing Gmail configured.
+export async function getLlmSettings(): Promise<{
+  endpoint: string;
+  model: string;
+}> {
+  const fileConfig = await readConfigFile();
+  return {
+    endpoint: fileConfig?.llmEndpoint ?? DEFAULT_LLM_ENDPOINT,
+    model: fileConfig?.llmModel ?? DEFAULT_LLM_MODEL,
+  };
+}
+
 async function requireConfig(): Promise<EmailReceiptsConfig> {
   const config = await getConfig();
   if (!config) {
