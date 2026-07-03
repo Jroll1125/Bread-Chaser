@@ -1,6 +1,6 @@
 {
   "name": "desktop-electron",
-  "version": "26.7.0",
+  "version": "26.7.1",
   "description": "Bread Chaser — a personal finance app by Rock Run Industries",
   "author": "Rock Run Industries",
   "main": "build/desktop-electron/index.js",
