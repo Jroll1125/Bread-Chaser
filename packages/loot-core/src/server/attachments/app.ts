@@ -28,6 +28,7 @@ type AttachmentRow = TransactionAttachmentEntity & {
 
 export type AttachmentsHandlers = {
   'attachments-add': typeof addAttachment;
+  'attachments-add-data': typeof addAttachmentData;
   'attachments-list': typeof listAttachments;
   'attachments-open': typeof openAttachment;
   'attachments-delete': typeof deleteAttachment;
@@ -36,6 +37,7 @@ export type AttachmentsHandlers = {
 
 export const app = createApp<AttachmentsHandlers>();
 app.method('attachments-add', mutator(addAttachment));
+app.method('attachments-add-data', mutator(addAttachmentData));
 app.method('attachments-list', listAttachments);
 app.method('attachments-open', openAttachment);
 // Deliberately not undoable: undo would resurrect metadata whose server
@@ -240,6 +242,37 @@ async function addAttachment({
     data: Buffer.from(data),
     fileName,
     source: 'file',
+  });
+}
+
+// Attach bytes the renderer already holds in memory (base64-encoded), for
+// flows that read the file themselves instead of passing a picked path — e.g.
+// mortgage statement import, which reads PDFs for text extraction. A
+// `sourceKey` makes re-imports idempotent: if the transaction already has an
+// attachment with that key, this returns null instead of duplicating.
+export async function addAttachmentData({
+  transactionId,
+  fileName,
+  dataBase64,
+  contentType,
+  sourceKey,
+}: {
+  transactionId: string;
+  fileName: string;
+  dataBase64: string;
+  contentType?: string | null;
+  sourceKey?: string | null;
+}): Promise<TransactionAttachmentEntity | null> {
+  if (sourceKey && (await hasAttachmentForSource(transactionId, sourceKey))) {
+    return null;
+  }
+  return addAttachmentBuffer({
+    transactionId,
+    data: Buffer.from(dataBase64, 'base64'),
+    fileName,
+    contentType: contentType ?? null,
+    source: 'file',
+    sourceKey: sourceKey ?? null,
   });
 }
 

@@ -9,7 +9,12 @@ import { batchUpdateTransactions } from '#server/transactions';
 import { loadRules } from '#server/transactions/transaction-rules';
 import type { TransactionEntity } from '#types/models';
 
-import { addAttachmentBuffer, app, hasAttachmentForSource } from './app';
+import {
+  addAttachmentBuffer,
+  addAttachmentData,
+  app,
+  hasAttachmentForSource,
+} from './app';
 
 // The electron secure-store talks to the Electron main process over a
 // parentPort bridge that does not exist under vitest; store secrets in
@@ -131,6 +136,37 @@ describe('attachments', () => {
     });
     expect(listed).toHaveLength(1);
     expect(listed[0].id).toBe(entity.id);
+  });
+
+  it('attaches base64 data and dedupes on sourceKey', async () => {
+    const txnId = await insertTxn('2026-07-01', -1234);
+    const data = Buffer.from('%PDF-1.4 statement bytes');
+
+    const first = await addAttachmentData({
+      transactionId: txnId,
+      fileName: 'statement.pdf',
+      dataBase64: data.toString('base64'),
+      contentType: 'application/pdf',
+      sourceKey: 'mortgage-stmt:acct:2026-06-17',
+    });
+    expect(first).not.toBeNull();
+    expect(first?.size_bytes).toBe(data.length);
+    expect(first?.content_type).toBe('application/pdf');
+
+    // Re-importing the same statement must not attach a duplicate.
+    const second = await addAttachmentData({
+      transactionId: txnId,
+      fileName: 'statement.pdf',
+      dataBase64: data.toString('base64'),
+      contentType: 'application/pdf',
+      sourceKey: 'mortgage-stmt:acct:2026-06-17',
+    });
+    expect(second).toBeNull();
+
+    const listed = await app.handlers['attachments-list']({
+      transactionId: txnId,
+    });
+    expect(listed).toHaveLength(1);
   });
 
   it('round-trips bytes through download and decrypt', async () => {
