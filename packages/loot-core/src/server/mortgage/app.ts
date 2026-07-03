@@ -695,6 +695,10 @@ function deriveDueDate(ext: {
 
 // The posted mortgage payment for a statement: a debit near the due date whose
 // amount leaves a positive, plausible principal after interest + escrow.
+// Categorized debits and transfer legs are excluded — a row the user has
+// already classified, or an internal move between their own accounts, is
+// never the servicer payment (same-amount twins like refund redrafts and
+// account-to-account transfers otherwise bait the matcher).
 async function findPaymentTransaction(
   mortgageAccountId: string,
   minAmount: number, // interest + escrow, cents (principal must be > 0)
@@ -708,6 +712,7 @@ async function findPaymentTransaction(
   const rows = await db.all<{ id: string; amount: number; date: number }>(
     `SELECT id, amount, date FROM transactions
       WHERE acct != ? AND isParent = 0 AND isChild = 0 AND tombstone = 0
+        AND category IS NULL AND transferred_id IS NULL
         AND amount < 0 AND (-amount) > ? AND (-amount) <= ?
         AND date >= ? AND date <= ?
       ORDER BY ABS(date - ?) LIMIT 1`,

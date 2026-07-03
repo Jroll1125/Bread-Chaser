@@ -516,6 +516,65 @@ describe('mortgage statement import', () => {
     expect(p.matchedTransactionId).toBe('fresh');
   });
 
+  it('skips categorized debits and transfer legs when matching', async () => {
+    await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
+    await setEscrowPeriod({
+      accountId: 'mtg',
+      effectiveDate: '2026-01-01',
+      propertyTaxMonthly: 40_000,
+      homeInsuranceMonthly: 10_000,
+      pmiMonthly: 0,
+    });
+
+    // A categorized same-amount twin sits right on the due date (e.g. a
+    // refund redraft the user already classified)…
+    const groupId = await db.insertCategoryGroup({ name: 'Stuff' });
+    const cat = await db.insertCategory({ name: 'Wash', cat_group: groupId });
+    await batchUpdateTransactions({
+      added: [
+        {
+          id: 'washrow',
+          account: 'chk',
+          amount: -280_000,
+          date: '2026-02-01',
+          category: cat,
+        } as TransactionEntity,
+      ],
+    });
+    // …and so does an internal transfer leg between the user's accounts.
+    await db.insertAccount({ id: 'sav', name: 'Savings', offbudget: 0 });
+    const savPayee = await db.insertPayee({ name: '', transfer_acct: 'sav' });
+    await batchUpdateTransactions({
+      added: [
+        {
+          id: 'xferleg',
+          account: 'chk',
+          amount: -280_000,
+          date: '2026-02-01',
+          payee: savPayee,
+        } as TransactionEntity,
+      ],
+    });
+    // The real payment posted two days later, uncategorized.
+    await addPayment('fresh', -280_000, '2026-02-03');
+
+    vi.mocked(extractStatement).mockResolvedValue({
+      interest: 200_000,
+      taxAndInsurance: 50_000,
+      principalBalance: 40_000_000,
+      statementDate: '2026-01-17',
+      dueDate: '2026-02-16',
+    });
+
+    const [p] = await parseStatements({
+      accountId: 'mtg',
+      statements: [{ fileName: 'jan.pdf', text: 'raw text' }],
+    });
+
+    expect(p.status).toBe('matched');
+    expect(p.matchedTransactionId).toBe('fresh');
+  });
+
   it('reports no-match when no payment fits the statement', async () => {
     await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
     vi.mocked(extractStatement).mockResolvedValue({
