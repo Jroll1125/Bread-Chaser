@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 
+import { aqlQuery } from '#server/aql';
 import { createApp } from '#server/app';
 import * as db from '#server/db';
 import { mutator } from '#server/mutators';
@@ -10,6 +11,7 @@ import {
 } from '#server/schedules/app';
 import { batchUpdateTransactions } from '#server/transactions';
 import { undoable } from '#server/undo';
+import { q } from '#shared/query';
 import { makeChild, recalculateSplit } from '#shared/transactions';
 import type { RuleConditionEntity, TransactionEntity } from '#types/models';
 
@@ -82,6 +84,7 @@ export type PaycheckHandlers = {
   'paycheck-get-configs': typeof getPaycheckConfigs;
   'paycheck-save-config': typeof savePaycheckConfig;
   'paycheck-delete-config': typeof deletePaycheckConfig;
+  'paycheck-find-match': typeof findPaycheckMatch;
   'paycheck-generate': typeof generatePaycheck;
 };
 
@@ -89,6 +92,7 @@ export const app = createApp<PaycheckHandlers>();
 app.method('paycheck-get-configs', getPaycheckConfigs);
 app.method('paycheck-save-config', mutator(undoable(savePaycheckConfig)));
 app.method('paycheck-delete-config', mutator(undoable(deletePaycheckConfig)));
+app.method('paycheck-find-match', findPaycheckMatch);
 app.method('paycheck-generate', mutator(undoable(generatePaycheck)));
 
 function parseLines(json: string | null): PaycheckLine[] {
@@ -410,10 +414,85 @@ export async function deletePaycheckConfig({
   return 'ok';
 }
 
+export type PaycheckMatch = {
+  transactionId: string;
+  amount: number;
+  date: string;
+  notes: string | null;
+};
+
+/**
+ * Before entering a paycheck, look for a transaction that already sits in the
+ * register for this deposit — same account, same date, and the same net amount
+ * that would land in the account. That's almost always the bank's own deposit
+ * row (imported or hand-entered), so entering the paycheck would duplicate it.
+ * Returns the candidate so the UI can offer to replace it instead. Only plain,
+ * unsplit rows are considered (an already-split paycheck has isParent = 1).
+ */
+export async function findPaycheckMatch({
+  configId,
+  date,
+}: {
+  configId: string;
+  date: string;
+}): Promise<PaycheckMatch | null> {
+  const row = await db.first<PaycheckConfigRow>(
+    'SELECT * FROM paycheck_configs WHERE id = ? AND tombstone = 0',
+    [configId],
+  );
+  if (!row) {
+    return null;
+  }
+  const config = fromRow(row);
+  const breakdown = computeBreakdown(config);
+  const dateInt = Number(date.replace(/-/g, ''));
+  const match = await db.first<{
+    id: string;
+    amount: number;
+    notes: string | null;
+  }>(
+    `SELECT id, amount, notes FROM transactions
+      WHERE acct = ? AND date = ? AND amount = ?
+        AND isParent = 0 AND isChild = 0 AND tombstone = 0
+      ORDER BY sort_order LIMIT 1`,
+    [config.accountId, dateInt, breakdown.primaryDeposit],
+  );
+  if (!match) {
+    return null;
+  }
+  return {
+    transactionId: match.id,
+    amount: match.amount,
+    date,
+    notes: match.notes,
+  };
+}
+
+// Load a plain, unsplit transaction to convert into a paycheck split.
+async function loadPlainTransaction(id: string): Promise<TransactionEntity> {
+  const { data } = await aqlQuery(
+    q('transactions')
+      .filter({ id })
+      .select('*')
+      .options({ splits: 'grouped' }),
+  );
+  const txn = (data as TransactionEntity[])[0];
+  if (!txn) {
+    throw new Error('The transaction to replace was not found.');
+  }
+  if (txn.is_parent || txn.is_child) {
+    throw new Error('That transaction is already split — pick a plain one.');
+  }
+  return txn;
+}
+
 /**
  * Enter one paycheck: create the split transaction for the given date. Any
  * of the line groups can be overridden for this paycheck only (Quicken's
- * "Enter" dialog); omitted groups use the saved template amounts.
+ * "Enter" dialog); omitted groups use the saved template amounts. When
+ * `replaceTransactionId` is given, the paycheck split is written onto that
+ * existing register row (converting it in place) instead of adding a new one —
+ * this is how "replace the deposit already in the register" works.
  */
 export async function generatePaycheck({
   configId,
@@ -423,6 +502,7 @@ export async function generatePaycheck({
   taxes,
   aftertax,
   deposits,
+  replaceTransactionId,
 }: {
   configId: string;
   date: string;
@@ -431,6 +511,7 @@ export async function generatePaycheck({
   taxes?: PaycheckLine[];
   aftertax?: PaycheckLine[];
   deposits?: PaycheckDeposit[];
+  replaceTransactionId?: string;
 }): Promise<{ transactionId: string; breakdown: PaycheckBreakdown }> {
   const row = await db.first<PaycheckConfigRow>(
     'SELECT * FROM paycheck_configs WHERE id = ? AND tombstone = 0',
@@ -457,17 +538,33 @@ export async function generatePaycheck({
     throw new Error('This paycheck does not add up — check the amounts.');
   }
 
-  const parent: TransactionEntity = {
-    id: uuidv4(),
-    account: config.accountId,
-    date,
-    amount: breakdown.primaryDeposit,
-    payee: config.payeeId ?? undefined,
-    notes: config.name,
-    is_parent: true,
-    cleared: false,
-    ...(config.scheduleId ? { schedule: config.scheduleId } : {}),
-  } as TransactionEntity;
+  // Replacing an existing deposit keeps that row's id, account, date and
+  // cleared/imported state so the bank match and reconciliation survive; we
+  // just relabel it and turn it into the split parent.
+  const existing = replaceTransactionId
+    ? await loadPlainTransaction(replaceTransactionId)
+    : null;
+  const parent: TransactionEntity = existing
+    ? ({
+        ...existing,
+        amount: breakdown.primaryDeposit,
+        payee: config.payeeId ?? existing.payee,
+        notes: config.name,
+        is_parent: true,
+        category: undefined,
+        ...(config.scheduleId ? { schedule: config.scheduleId } : {}),
+      } as TransactionEntity)
+    : ({
+        id: uuidv4(),
+        account: config.accountId,
+        date,
+        amount: breakdown.primaryDeposit,
+        payee: config.payeeId ?? undefined,
+        notes: config.name,
+        is_parent: true,
+        cleared: false,
+        ...(config.scheduleId ? { schedule: config.scheduleId } : {}),
+      } as TransactionEntity);
 
   const parts: Array<{
     amount: number;
@@ -530,7 +627,24 @@ export async function generatePaycheck({
     throw new Error('Paycheck split does not sum to the net deposit.');
   }
 
-  await batchUpdateTransactions({ added: [parent, ...children] });
+  if (existing) {
+    await batchUpdateTransactions({
+      updated: [
+        {
+          id: existing.id,
+          amount: parent.amount,
+          payee: parent.payee,
+          notes: parent.notes,
+          is_parent: true,
+          category: null,
+          ...(config.scheduleId ? { schedule: config.scheduleId } : {}),
+        },
+      ] as unknown as Partial<TransactionEntity>[],
+      added: children,
+    });
+  } else {
+    await batchUpdateTransactions({ added: [parent, ...children] });
+  }
 
   return { transactionId: parent.id, breakdown };
 }

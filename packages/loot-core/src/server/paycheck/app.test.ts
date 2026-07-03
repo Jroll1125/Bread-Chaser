@@ -6,6 +6,7 @@ import type { TransactionEntity } from '#types/models';
 
 import {
   computeBreakdown,
+  findPaycheckMatch,
   generatePaycheck,
   getPaycheckConfigs,
   savePaycheckConfig,
@@ -168,6 +169,69 @@ describe('paycheck', () => {
     expect(savingsRows).toHaveLength(1);
     expect(savingsRows[0].id).toBe('imported-dep');
     expect(savingsRows[0].transferred_id).toBeTruthy();
+  });
+
+  it('finds a plain register deposit to replace', async () => {
+    const config = await savePaycheckConfig(baseConfigInput());
+    // The net that stays in checking is 91,235 — the bank's own deposit row.
+    await batchUpdateTransactions({
+      added: [
+        {
+          id: 'bank-dep',
+          account: 'checking',
+          amount: 91_235,
+          date: '2026-04-10',
+        } as TransactionEntity,
+      ],
+    });
+
+    const match = await findPaycheckMatch({
+      configId: config.id,
+      date: '2026-04-10',
+    });
+    expect(match?.transactionId).toBe('bank-dep');
+    expect(match?.amount).toBe(91_235);
+
+    // A different date has nothing to replace.
+    const none = await findPaycheckMatch({
+      configId: config.id,
+      date: '2026-04-17',
+    });
+    expect(none).toBeNull();
+  });
+
+  it('replaces the matched deposit in place instead of duplicating', async () => {
+    const config = await savePaycheckConfig(baseConfigInput());
+    await batchUpdateTransactions({
+      added: [
+        {
+          id: 'bank-dep',
+          account: 'checking',
+          amount: 91_235,
+          date: '2026-04-10',
+        } as TransactionEntity,
+      ],
+    });
+
+    const { transactionId } = await generatePaycheck({
+      configId: config.id,
+      date: '2026-04-10',
+      replaceTransactionId: 'bank-dep',
+    });
+    expect(transactionId).toBe('bank-dep');
+
+    // The matched row became the split parent — no second checking parent.
+    const parents = await db.all<{ id: string }>(
+      "SELECT id FROM transactions WHERE acct = 'checking' AND isParent = 1 AND tombstone = 0",
+    );
+    expect(parents).toHaveLength(1);
+    expect(parents[0].id).toBe('bank-dep');
+
+    const children = await db.all<{ amount: number }>(
+      'SELECT amount FROM transactions WHERE parent_id = ? AND tombstone = 0',
+      ['bank-dep'],
+    );
+    expect(children.reduce((acc, c) => acc + c.amount, 0)).toBe(91_235);
   });
 
   it('rejects deposits that exceed net pay', async () => {

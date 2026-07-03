@@ -191,6 +191,11 @@ export function PaycheckModal({ configId }: PaycheckModalProps = {}) {
   const [entryDate, setEntryDate] = useState(currentDay());
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [pendingMatch, setPendingMatch] = useState<{
+    transactionId: string;
+    amount: number;
+    savedId: string;
+  } | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -260,6 +265,7 @@ export function PaycheckModal({ configId }: PaycheckModalProps = {}) {
   const onEnter = async (close: () => void) => {
     setIsBusy(true);
     setError(null);
+    setPendingMatch(null);
     try {
       // Save first so the entered paycheck always matches what's on screen.
       const saved = (await send('paycheck-save-config', {
@@ -267,10 +273,46 @@ export function PaycheckModal({ configId }: PaycheckModalProps = {}) {
         ...configInput(),
       })) as Config;
       setConfig(saved);
+      // If a plain transaction for this deposit is already in the register
+      // (usually the bank's own row), offer to replace it instead of adding a
+      // duplicate.
+      const match = (await send('paycheck-find-match', {
+        configId: saved.id,
+        date: entryDate,
+      })) as { transactionId: string; amount: number } | null;
+      if (match) {
+        setPendingMatch({ ...match, savedId: saved.id });
+        setIsBusy(false);
+        return;
+      }
       await send('paycheck-generate', {
         configId: saved.id,
         date: entryDate,
       });
+      close();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setIsBusy(false);
+    }
+  };
+
+  // Finish entering after the user chooses replace-vs-add for a matched row.
+  const finishEnter = async (
+    close: () => void,
+    replaceTransactionId?: string,
+  ) => {
+    if (!pendingMatch) {
+      return;
+    }
+    setIsBusy(true);
+    setError(null);
+    try {
+      await send('paycheck-generate', {
+        configId: pendingMatch.savedId,
+        date: entryDate,
+        ...(replaceTransactionId ? { replaceTransactionId } : {}),
+      });
+      setPendingMatch(null);
       close();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -492,18 +534,72 @@ export function PaycheckModal({ configId }: PaycheckModalProps = {}) {
               <input
                 type="date"
                 value={entryDate}
-                onChange={e => setEntryDate(e.target.value)}
+                onChange={e => {
+                  setEntryDate(e.target.value);
+                  setPendingMatch(null);
+                }}
                 style={{ ...dateInputStyle, width: 150 }}
               />
               <ButtonWithLoading
                 variant="primary"
-                isLoading={isBusy}
-                isDisabled={!name.trim() || !accountId || net <= 0}
+                isLoading={isBusy && !pendingMatch}
+                isDisabled={
+                  !name.trim() || !accountId || net <= 0 || pendingMatch != null
+                }
                 onPress={() => void onEnter(() => state.close())}
               >
                 <Trans>Enter paycheck</Trans>
               </ButtonWithLoading>
             </View>
+
+            {pendingMatch && (
+              <View
+                style={{
+                  gap: 8,
+                  padding: 10,
+                  borderRadius: 8,
+                  backgroundColor: theme.tableRowHeaderBackground,
+                  border: '1px solid ' + theme.tableBorder,
+                }}
+              >
+                <Text style={{ fontSize: 13 }}>
+                  <Trans>
+                    A{' '}
+                    {{ amount: integerToCurrency(pendingMatch.amount) }}{' '}
+                    transaction is already in this account on that date —
+                    probably the bank&apos;s own deposit. Replace it with this
+                    paycheck split, or add a new one?
+                  </Trans>
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <ButtonWithLoading
+                    variant="primary"
+                    isLoading={isBusy}
+                    onPress={() =>
+                      void finishEnter(
+                        () => state.close(),
+                        pendingMatch.transactionId,
+                      )
+                    }
+                  >
+                    <Trans>Replace it</Trans>
+                  </ButtonWithLoading>
+                  <Button
+                    isDisabled={isBusy}
+                    onPress={() => void finishEnter(() => state.close())}
+                  >
+                    <Trans>Add new anyway</Trans>
+                  </Button>
+                  <Button
+                    variant="bare"
+                    isDisabled={isBusy}
+                    onPress={() => setPendingMatch(null)}
+                  >
+                    <Trans>Cancel</Trans>
+                  </Button>
+                </View>
+              </View>
+            )}
           </View>
 
           <ModalButtons>
