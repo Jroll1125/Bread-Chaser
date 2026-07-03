@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { send } from '@actual-app/core/platform/client/connection';
 import type { PlaidStatus } from '@actual-app/core/types/models';
@@ -9,17 +9,18 @@ export function usePlaidStatus() {
   const [plaidStatus, setPlaidStatus] = useState<PlaidStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetch() {
-      try {
-        setPlaidStatus(await send('plaid-status'));
-      } catch {
-        setPlaidStatus(null);
-      }
-      setIsLoading(false);
+  const refetch = useCallback(async () => {
+    try {
+      setPlaidStatus(await send('plaid-status'));
+    } catch {
+      setPlaidStatus(null);
     }
-    void fetch();
+    setIsLoading(false);
   }, []);
 
-  return { plaidStatus, isLoading };
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { plaidStatus, isLoading, refetch };
 }

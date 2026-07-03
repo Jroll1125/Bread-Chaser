@@ -13,6 +13,7 @@ import { Permissions } from '#auth/types';
 import { useMultiuserEnabled } from '#components/ServerContext';
 import { authorizeBank as authorizeEnableBanking } from '#enablebanking';
 import { authorizeBank } from '#gocardless';
+import { useAccounts } from '#hooks/useAccounts';
 import { useAkahuStatus } from '#hooks/useAkahuStatus';
 import { useEnableBankingStatus } from '#hooks/useEnableBankingStatus';
 import { useFeatureFlag } from '#hooks/useFeatureFlag';
@@ -66,6 +67,11 @@ export type BuiltInBankSyncProviderState = {
   onConfigure: ProviderAction;
   onLink: ProviderAction;
   onReset: ProviderAction;
+  // Plaid-only extras, folded in from the old standalone Plaid card.
+  onSync?: ProviderAction;
+  isSyncing?: boolean;
+  onSandboxLink?: ProviderAction;
+  isSandboxLinking?: boolean;
 };
 
 type SecretSetResponse = {
@@ -122,7 +128,17 @@ export function useBuiltInBankSyncProviders({
 
   const enableBankingEnabled = useFeatureFlag('enableBanking');
   const akahuEnabled = useFeatureFlag('akahuBankSync');
-  const { plaidStatus } = usePlaidStatus();
+  const { plaidStatus, refetch: refetchPlaid } = usePlaidStatus();
+  const accountsQuery = useAccounts();
+  const plaidAccounts = useMemo(
+    () =>
+      (accountsQuery.data ?? []).filter(
+        account => account.account_sync_source === 'plaid' && !account.closed,
+      ),
+    [accountsQuery.data],
+  );
+  const [isSyncingPlaid, setIsSyncingPlaid] = useState(false);
+  const [isSandboxLinking, setIsSandboxLinking] = useState(false);
   const { configuredGoCardless } = useGoCardlessStatus();
   const { configuredSimpleFin } = useSimpleFinStatus();
   const { configuredPluggyAi } = usePluggyAiStatus();
@@ -631,38 +647,99 @@ export function useBuiltInBankSyncProviders({
     );
   }, [dispatch, t]);
 
-  // Plaid credentials live in plaid.json in the app data directory (the
-  // secret is moved into OS-encrypted storage on first read) - there is no
-  // in-app secrets form yet, so Set up / Reset explain the file instead.
+  // Plaid has a real in-app setup modal (clientId / secret / env); Set up, Edit
+  // setup, and Reset all open it.
   const onPlaidConfigure = useCallback(() => {
     dispatch(
-      addNotification({
-        notification: {
-          type: 'message',
-          title: t('Plaid setup'),
-          message: t(
-            'Create plaid.json in the app data directory with your Plaid clientId, env ("sandbox" or "production"), and secret, then restart the app. The secret is moved into encrypted storage automatically.',
-          ),
-          timeout: 15000,
+      pushModal({
+        modal: {
+          name: 'plaid-setup',
+          options: {
+            onSuccess: () => {
+              void refetchPlaid();
+            },
+          },
         },
       }),
     );
-  }, [dispatch, t]);
+  }, [dispatch, refetchPlaid]);
 
-  const onPlaidReset = useCallback(() => {
-    dispatch(
-      addNotification({
-        notification: {
-          type: 'message',
-          title: t('Plaid credentials'),
-          message: t(
-            'To change Plaid credentials, add the new secret to plaid.json in the app data directory and restart the app.',
-          ),
-          timeout: 15000,
-        },
-      }),
-    );
-  }, [dispatch, t]);
+  const onPlaidReset = onPlaidConfigure;
+
+  const onPlaidSync = useCallback(async () => {
+    setIsSyncingPlaid(true);
+    try {
+      const res = await send('accounts-bank-sync', {
+        ids: plaidAccounts.map(account => account.id),
+      });
+      if (res.errors.length > 0) {
+        dispatch(
+          addNotification({
+            notification: {
+              type: 'error',
+              title: t('Plaid sync'),
+              message: res.errors.map(error => error.message).join(' '),
+              timeout: 5000,
+            },
+          }),
+        );
+      } else {
+        dispatch(
+          addNotification({
+            notification: {
+              type: 'message',
+              message: t('Synced. {{count}} new transaction(s).', {
+                count: res.newTransactions.length,
+              }),
+            },
+          }),
+        );
+      }
+      void accountsQuery.refetch();
+    } catch (error) {
+      dispatch(
+        addNotification({
+          notification: {
+            type: 'error',
+            title: t('Plaid sync'),
+            message: error instanceof Error ? error.message : String(error),
+            timeout: 5000,
+          },
+        }),
+      );
+    }
+    setIsSyncingPlaid(false);
+  }, [dispatch, plaidAccounts, accountsQuery, t]);
+
+  const onPlaidSandbox = useCallback(async () => {
+    setIsSandboxLinking(true);
+    try {
+      const { createdAccountIds } = await send('plaid-sandbox-link', {});
+      dispatch(
+        addNotification({
+          notification: {
+            type: 'message',
+            message: t('Connected {{count}} sandbox account(s).', {
+              count: createdAccountIds.length,
+            }),
+          },
+        }),
+      );
+      void accountsQuery.refetch();
+    } catch (error) {
+      dispatch(
+        addNotification({
+          notification: {
+            type: 'error',
+            title: t('Plaid sandbox'),
+            message: error instanceof Error ? error.message : String(error),
+            timeout: 5000,
+          },
+        }),
+      );
+    }
+    setIsSandboxLinking(false);
+  }, [dispatch, accountsQuery, t]);
 
   const providers = useMemo<BuiltInBankSyncProviderState[]>(() => {
     const baseProviders: BuiltInBankSyncProviderState[] = [
@@ -678,6 +755,11 @@ export function useBuiltInBankSyncProviders({
         onConfigure: onPlaidConfigure,
         onLink: onPlaidLink,
         onReset: onPlaidReset,
+        onSync: plaidAccounts.length > 0 ? onPlaidSync : undefined,
+        isSyncing: isSyncingPlaid,
+        onSandboxLink:
+          plaidStatus?.env === 'sandbox' ? onPlaidSandbox : undefined,
+        isSandboxLinking,
       },
       ...BUILT_IN_BANK_SYNC_PROVIDERS.map(providerId => {
         if (providerId === 'goCardless') {
@@ -791,6 +873,12 @@ export function useBuiltInBankSyncProviders({
     onPlaidConfigure,
     onPlaidLink,
     onPlaidReset,
+    onPlaidSandbox,
+    onPlaidSync,
+    plaidAccounts,
+    plaidStatus,
+    isSyncingPlaid,
+    isSandboxLinking,
     onPluggyAiInit,
     onPluggyAiReset,
     onSimpleFinInit,

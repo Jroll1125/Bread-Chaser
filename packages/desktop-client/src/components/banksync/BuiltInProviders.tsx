@@ -169,6 +169,24 @@ export function BuiltInProviders({
                     <Trans>Set up</Trans>
                   )}
                 </Button>
+                {provider.onSync && (
+                  <ButtonWithLoading
+                    isDisabled={!provider.isConfigured || isServerMissing}
+                    isLoading={provider.isSyncing}
+                    onPress={() => provider.onSync?.()}
+                  >
+                    <Trans>Sync now</Trans>
+                  </ButtonWithLoading>
+                )}
+                {provider.onSandboxLink && (
+                  <ButtonWithLoading
+                    isDisabled={!provider.isConfigured}
+                    isLoading={provider.isSandboxLinking}
+                    onPress={() => provider.onSandboxLink?.()}
+                  >
+                    <Trans>Sandbox bank</Trans>
+                  </ButtonWithLoading>
+                )}
                 <ButtonWithLoading
                   variant="primary"
                   isDisabled={!provider.isConfigured || isServerMissing}
