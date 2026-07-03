@@ -24,6 +24,13 @@ import { app as filtersApp } from './filters/app';
 import { app as forecastApp } from './forecast/app';
 import { app as formulasApp } from './formulas/app';
 import { app } from './main-app';
+import { startLocalApi } from '#platform/server/local-api';
+
+import {
+  app as localApiApp,
+  getApiKey,
+  LOCAL_API_PORT,
+} from './local-api/app';
 import { app as mortgageApp } from './mortgage/app';
 import { mutator, runHandler } from './mutators';
 import { app as notesApp } from './notes/app';
@@ -153,6 +160,7 @@ app.combine(
   tagsApp,
   attachmentsApp,
   mortgageApp,
+  localApiApp,
 );
 
 export function getDefaultDocumentDir() {
@@ -218,6 +226,20 @@ export async function initApp(isDev, socketName) {
   setServer(url);
 
   connection.init(socketName, app.handlers);
+
+  // Localhost API for programmatic bulk edits (no-op off electron). Off until
+  // the user generates a key.
+  startLocalApi({
+    port: LOCAL_API_PORT,
+    getKey: getApiKey,
+    dispatch: (name, args) =>
+      runHandler(
+        (app.handlers as Record<string, (a: unknown) => Promise<unknown>>)[
+          name
+        ],
+        args,
+      ),
+  });
 
   // Allow running DB queries locally
   global.$query = aqlQuery;

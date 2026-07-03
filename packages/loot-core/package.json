@@ -55,6 +55,10 @@
       "electron": "./src/platform/server/oauth-loopback/index.electron.ts",
       "default": "./src/platform/server/oauth-loopback/index.ts"
     },
+    "#platform/server/local-api": {
+      "electron": "./src/platform/server/local-api/index.electron.ts",
+      "default": "./src/platform/server/local-api/index.ts"
+    },
     "#platform/server/secure-store": {
       "electron": "./src/platform/server/secure-store/index.electron.ts",
       "api": "./src/platform/server/secure-store/index.api.ts",
