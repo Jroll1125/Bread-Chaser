@@ -34,6 +34,7 @@ import {
 import { app as mortgageApp } from './mortgage/app';
 import { mutator, runHandler } from './mutators';
 import { app as notesApp } from './notes/app';
+import { app as paycheckApp } from './paycheck/app';
 import { app as payeesApp } from './payees/app';
 import { get } from './post';
 import { app as preferencesApp } from './preferences/app';
@@ -160,6 +161,7 @@ app.combine(
   tagsApp,
   attachmentsApp,
   mortgageApp,
+  paycheckApp,
   localApiApp,
 );
 

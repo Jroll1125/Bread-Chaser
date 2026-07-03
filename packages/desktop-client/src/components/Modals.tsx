@@ -71,6 +71,7 @@ import { MortgageEscrowModal } from './modals/MortgageEscrowModal';
 import { MortgageImportModal } from './modals/MortgageImportModal';
 import { MortgageSetupModal } from './modals/MortgageSetupModal';
 import { MortgageSplitModal } from './modals/MortgageSplitModal';
+import { PaycheckModal } from './paycheck/PaycheckModal';
 import { NewCategoryGroupModal } from './modals/NewCategoryGroupModal';
 import { NewCategoryModal } from './modals/NewCategoryModal';
 import { NotesModal } from './modals/NotesModal';
@@ -320,6 +321,9 @@ export function Modals() {
 
         case 'mortgage-import':
           return <MortgageImportModal key={key} {...modal.options} />;
+
+        case 'paycheck':
+          return <PaycheckModal key={key} {...modal.options} />;
 
         case 'category-menu':
           return <CategoryMenuModal key={key} {...modal.options} />;

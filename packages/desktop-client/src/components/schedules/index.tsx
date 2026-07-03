@@ -38,6 +38,10 @@ export function Schedules() {
     dispatch(pushModal({ modal: { name: 'schedule-edit', options: {} } }));
   }, [dispatch]);
 
+  const onAddPaycheck = useCallback(() => {
+    dispatch(pushModal({ modal: { name: 'paycheck', options: {} } }));
+  }, [dispatch]);
+
   const onDiscover = useCallback(() => {
     dispatch(pushModal({ modal: { name: 'schedules-discover' } }));
   }, [dispatch]);
@@ -144,9 +148,14 @@ export function Schedules() {
               <Trans>Change upcoming length</Trans>
             </Button>
           </View>
-          <Button variant="primary" onPress={onAdd}>
-            <Trans>Add new schedule</Trans>
-          </Button>
+          <View style={{ flexDirection: 'row', gap: '1em' }}>
+            <Button onPress={onAddPaycheck}>
+              <Trans>Paycheck…</Trans>
+            </Button>
+            <Button variant="primary" onPress={onAdd}>
+              <Trans>Add new schedule</Trans>
+            </Button>
+          </View>
         </View>
       </Page>
     </ErrorBoundary>

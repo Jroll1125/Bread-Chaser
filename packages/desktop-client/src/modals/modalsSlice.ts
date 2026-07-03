@@ -184,6 +184,12 @@ export type Modal =
       };
     }
   | {
+      name: 'paycheck';
+      options?: {
+        configId?: string;
+      };
+    }
+  | {
       name: 'simplefin-init';
       options: {
         onSuccess: () => void;
