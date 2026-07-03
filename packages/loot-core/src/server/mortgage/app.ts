@@ -995,6 +995,10 @@ export async function getMortgagePayments({
     parentIds,
   );
 
+  // Amounts are signed by payment direction: a funding-account debit (a real
+  // payment) reads positive, and a refund (a credit split back out, e.g. a
+  // reversed prepayment) reads negative — so the history shows
+  // paid / refunded / re-paid rather than three identical payments.
   const byParent = new Map<
     string,
     { interest: number; tax: number; ins: number; pmi: number }
@@ -1006,7 +1010,7 @@ export async function getMortgagePayments({
       ins: 0,
       pmi: 0,
     };
-    const amt = Math.abs(c.amount);
+    const amt = -c.amount;
     if (c.category === config.interest_category) {
       bucket.interest += amt;
     } else if (c.category === config.property_tax_category) {
@@ -1029,12 +1033,12 @@ export async function getMortgagePayments({
       fundingAccountId: s.funding_acct,
       fundingAccountName: s.funding_name ?? 'Unknown account',
       date: dateIntToYmd(s.pdate),
-      total: Math.abs(s.total),
+      total: -s.total,
       interest: bucket?.interest ?? 0,
       propertyTax: bucket?.tax ?? 0,
       homeInsurance: bucket?.ins ?? 0,
       pmi: bucket?.pmi ?? 0,
-      principal: Math.abs(s.principal),
+      principal: -s.principal,
       hasTransfer: s.transferred_id != null,
       attachmentCount: attachCount.get(s.parent_id) ?? 0,
     };
