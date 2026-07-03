@@ -160,6 +160,18 @@ export type Modal =
       };
     }
   | {
+      name: 'mortgage-setup';
+      options: {
+        accountId: AccountEntity['id'];
+      };
+    }
+  | {
+      name: 'mortgage-split';
+      options: {
+        transactionId: TransactionEntity['id'];
+      };
+    }
+  | {
       name: 'simplefin-init';
       options: {
         onSuccess: () => void;

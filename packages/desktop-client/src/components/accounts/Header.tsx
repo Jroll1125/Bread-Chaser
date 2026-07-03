@@ -736,6 +736,7 @@ type AccountMenuProps = {
     item:
       | 'link'
       | 'account-type'
+      | 'mortgage-settings'
       | 'unlink'
       | 'close'
       | 'reopen'
@@ -808,6 +809,9 @@ function AccountMenu({
         { name: 'export', text: t('Export') },
         ...(account && !account.closed
           ? [{ name: 'account-type', text: t('Account type…') } as const]
+          : []),
+        ...(account && !account.closed && account.type === 'mortgage'
+          ? [{ name: 'mortgage-settings', text: t('Mortgage terms…') } as const]
           : []),
         ...(account && !account.closed
           ? canSync

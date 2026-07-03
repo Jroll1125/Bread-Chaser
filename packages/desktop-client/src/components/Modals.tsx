@@ -67,6 +67,8 @@ import { ImportYNAB4Modal } from './modals/manager/ImportYNAB4Modal';
 import { ImportYNAB5Modal } from './modals/manager/ImportYNAB5Modal';
 import { ManageRulesModal } from './modals/ManageRulesModal';
 import { MergeUnusedPayeesModal } from './modals/MergeUnusedPayeesModal';
+import { MortgageSetupModal } from './modals/MortgageSetupModal';
+import { MortgageSplitModal } from './modals/MortgageSplitModal';
 import { NewCategoryGroupModal } from './modals/NewCategoryGroupModal';
 import { NewCategoryModal } from './modals/NewCategoryModal';
 import { NotesModal } from './modals/NotesModal';
@@ -304,6 +306,12 @@ export function Modals() {
 
         case 'account-type':
           return <AccountTypeModal key={key} {...modal.options} />;
+
+        case 'mortgage-setup':
+          return <MortgageSetupModal key={key} {...modal.options} />;
+
+        case 'mortgage-split':
+          return <MortgageSplitModal key={key} {...modal.options} />;
 
         case 'category-menu':
           return <CategoryMenuModal key={key} {...modal.options} />;

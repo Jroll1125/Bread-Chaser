@@ -187,6 +187,16 @@ export function TransactionMenu({
               }),
             );
             break;
+          case 'split-as-mortgage':
+            dispatch(
+              pushModal({
+                modal: {
+                  name: 'mortgage-split',
+                  options: { transactionId: selectedIds[0] },
+                },
+              }),
+            );
+            break;
           case 'link-schedule':
             onLinkSchedule(selectedIds);
             break;
@@ -226,6 +236,14 @@ export function TransactionMenu({
               { name: 'delete', text: t('Delete') },
               ...(selectedIds.length === 1
                 ? [{ name: 'attachments', text: t('Attachments') }]
+                : []),
+              ...(selectedIds.length === 1
+                ? [
+                    {
+                      name: 'split-as-mortgage',
+                      text: t('Split as mortgage payment'),
+                    },
+                  ]
                 : []),
               ...(linked
                 ? [

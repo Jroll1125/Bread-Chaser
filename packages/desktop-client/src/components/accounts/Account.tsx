@@ -800,6 +800,7 @@ class AccountInternal extends PureComponent<
     item:
       | 'link'
       | 'account-type'
+      | 'mortgage-settings'
       | 'unlink'
       | 'close'
       | 'reopen'
@@ -833,6 +834,16 @@ class AccountInternal extends PureComponent<
           pushModal({
             modal: {
               name: 'account-type',
+              options: { accountId },
+            },
+          }),
+        );
+        break;
+      case 'mortgage-settings':
+        this.props.dispatch(
+          pushModal({
+            modal: {
+              name: 'mortgage-setup',
               options: { accountId },
             },
           }),
