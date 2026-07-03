@@ -119,15 +119,32 @@ describe('findCandidates', () => {
     expect(late?.dateGapDays).toBe(5);
   });
 
-  test('refunds match positive ledger amounts', async () => {
+  test('matches on absolute amount regardless of the extracted direction', async () => {
+    // A same-magnitude refund and charge on the same day: a refund-direction
+    // receipt matches BOTH now (sign-tolerant), because the local model
+    // regularly flips charge vs refund. Ranking + the review screen pick.
     const refundTxn = await insertTxn('2025-06-11', 3185);
-    await insertTxn('2025-06-11', -3185);
+    const chargeTxn = await insertTxn('2025-06-11', -3185);
 
     const candidates = await findCandidates(
       'msg-2',
       makeReceipt({ direction: 'refund' }),
     );
-    expect(candidates.map(c => c.id)).toEqual([refundTxn]);
+    expect(candidates.map(c => c.id).sort()).toEqual(
+      [refundTxn, chargeTxn].sort(),
+    );
+  });
+
+  test('a charge mis-read as a refund still finds the negative transaction', async () => {
+    // The real ledger row is a −5.34 charge (e.g. NASCAR MOBILE); the model
+    // extracted it as a +5.34 refund. Absolute-amount matching finds it.
+    const chargeTxn = await insertTxn('2025-06-11', -534);
+
+    const candidates = await findCandidates(
+      'msg-missign',
+      makeReceipt({ direction: 'refund', amount_cents: 534 }),
+    );
+    expect(candidates.map(c => c.id)).toEqual([chargeTxn]);
   });
 
   test('rejected pairs are never re-proposed', async () => {

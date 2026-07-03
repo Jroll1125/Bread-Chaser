@@ -6,10 +6,7 @@ import { Input } from '@actual-app/components/input';
 import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
-import {
-  listen,
-  send,
-} from '@actual-app/core/platform/client/connection';
+import { listen, send } from '@actual-app/core/platform/client/connection';
 import { q } from '@actual-app/core/shared/query';
 import { integerToCurrency } from '@actual-app/core/shared/util';
 import type {
@@ -19,11 +16,6 @@ import type {
 } from '@actual-app/core/types/models';
 
 import { Error as ErrorAlert } from '#components/alerts';
-import { FinancialText } from '#components/FinancialText';
-import {
-  ColumnWidthsProvider,
-  ResizableCol,
-} from '#components/table/columnResize';
 import { usePayees } from '#hooks/usePayees';
 import { aqlQuery } from '#queries/aqlQuery';
 
@@ -47,7 +39,7 @@ function bestProposal(item: EmailReviewItem): EmailMatchProposal | null {
 }
 
 // Candidates for hand-linking: anything posted within six weeks of the
-// receipt; ranked by how close the amount is, exact matches first.
+// receipt, ranked by how close the amount is (exact matches first).
 async function fetchLinkCandidates(
   item: EmailReviewItem,
 ): Promise<TransactionEntity[]> {
@@ -143,7 +135,7 @@ function LinkPicker({
         </Text>
       ) : shown.length === 0 ? (
         <Text style={{ color: theme.pageTextSubdued }}>
-          <Trans>No transactions near this receipt's date.</Trans>
+          <Trans>No transactions near this receipt&apos;s date.</Trans>
         </Text>
       ) : (
         shown.map(txn => (
@@ -156,17 +148,16 @@ function LinkPicker({
               gap: 10,
             }}
           >
-            <View
-              style={{ flexDirection: 'row', gap: 10, alignItems: 'baseline' }}
+            <Text
+              style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
             >
-              <Text style={{ color: theme.pageTextSubdued }}>{txn.date}</Text>
-              <Text style={{ color: theme.pageText }}>
-                {payeeName(txn.payee) || (txn.notes ?? '-')}
-              </Text>
-              <FinancialText style={{ color: theme.pageText }}>
-                {integerToCurrency(txn.amount ?? 0)}
-              </FinancialText>
-            </View>
+              {txn.date} · {payeeName(txn.payee) || (txn.notes ?? '-')} ·{' '}
+              {integerToCurrency(txn.amount ?? 0)}
+            </Text>
             <Button
               variant="primary"
               isDisabled={busy}
@@ -180,6 +171,21 @@ function LinkPicker({
     </View>
   );
 }
+
+const cell: React.CSSProperties = {
+  padding: '6px 10px',
+  fontSize: 13,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  verticalAlign: 'middle',
+};
+const headCell: React.CSSProperties = {
+  ...cell,
+  textAlign: 'left',
+  fontWeight: 500,
+  color: theme.pageTextSubdued,
+};
 
 /**
  * The review queue as a first-class table on the Email Receipts page:
@@ -229,211 +235,231 @@ export function EmailReceiptsReviewTable() {
 
   const pending = lists?.pending ?? [];
   const applied = lists?.applied ?? [];
-
-  const headerText = {
-    fontSize: 12,
-    color: theme.pageTextSubdued,
-  } as const;
+  const unmatched = pending.filter(item => !bestProposal(item));
 
   return (
     <View style={{ gap: 18 }}>
       {error && <ErrorAlert>{error}</ErrorAlert>}
 
-      <ColumnWidthsProvider tableId="email-review">
-        <View style={{ gap: 6 }}>
+      <View style={{ gap: 6 }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
           <Text style={{ fontWeight: 600, fontSize: 15 }}>
             <Trans>Needs review ({{ count: pending.length }})</Trans>
           </Text>
-          <View
-            style={{
-              border: '1px solid ' + theme.tableBorder,
-              borderRadius: 8,
-              overflow: 'hidden',
-            }}
-          >
-            <View
-              style={{
-                flexDirection: 'row',
-                padding: '6px 12px',
-                backgroundColor: theme.tableRowHeaderBackground,
+          {unmatched.length > 0 && (
+            <Button
+              isDisabled={isBusy}
+              onPress={() => {
+                void act(async () => {
+                  for (const item of unmatched) {
+                    await send('email-receipts-reject', {
+                      messageId: item.messageId,
+                    });
+                  }
+                });
               }}
             >
-              <ResizableCol col="receipt" flex={2.2} grip>
-                <Text style={headerText}>
-                  <Trans>Receipt</Trans>
-                </Text>
-              </ResizableCol>
-              <ResizableCol col="amount" flex={0.9} grip>
-                <Text style={{ ...headerText, textAlign: 'right' }}>
-                  <Trans>Amount</Trans>
-                </Text>
-              </ResizableCol>
-              <ResizableCol col="date" flex={0.9} grip>
-                <Text style={headerText}>
-                  <Trans>Date</Trans>
-                </Text>
-              </ResizableCol>
-              <ResizableCol col="candidate" flex={2.2} grip>
-                <Text style={headerText}>
-                  <Trans>Best match</Trans>
-                </Text>
-              </ResizableCol>
-              <View style={{ width: 250 }} />
-            </View>
+              <Trans>Dismiss all {{ count: unmatched.length }} unmatched</Trans>
+            </Button>
+          )}
+        </View>
 
-            {pending.length === 0 && (
-              <View style={{ padding: 12 }}>
-                <Text style={{ color: theme.pageTextSubdued }}>
-                  <Trans>
-                    Nothing to review. Receipts show up here after a sync.
-                  </Trans>
-                </Text>
-              </View>
-            )}
-
-            {pending.map(item => {
-              const best = bestProposal(item);
-              return (
-                <View
-                  key={item.messageId}
-                  style={{ borderTop: '1px solid ' + theme.tableBorder }}
+        <View
+          style={{
+            border: '1px solid ' + theme.tableBorder,
+            borderRadius: 8,
+            overflow: 'hidden',
+          }}
+        >
+          <View style={{ overflowX: 'auto' }}>
+            <table
+              style={{
+                width: '100%',
+                minWidth: 720,
+                tableLayout: 'fixed',
+                borderCollapse: 'collapse',
+              }}
+            >
+              <colgroup>
+                <col style={{ width: '30%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '24%' }} />
+                <col style={{ width: '25%' }} />
+              </colgroup>
+              <thead>
+                <tr
+                  style={{ backgroundColor: theme.tableRowHeaderBackground }}
                 >
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      padding: '6px 12px',
-                    }}
-                  >
-                    <ResizableCol col="receipt" flex={2.2}>
-                      <Text style={{ fontWeight: 600 }}>
-                        {item.receipt.merchant}
-                      </Text>
-                      <Text
+                  <th style={headCell}>{t('Receipt')}</th>
+                  <th style={{ ...headCell, textAlign: 'right' }}>
+                    {t('Amount')}
+                  </th>
+                  <th style={headCell}>{t('Date')}</th>
+                  <th style={headCell}>{t('Best match')}</th>
+                  <th style={{ ...headCell, textAlign: 'right' }} />
+                </tr>
+              </thead>
+              <tbody>
+                {pending.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      style={{ ...cell, color: theme.pageTextSubdued }}
+                    >
+                      <Trans>
+                        Nothing to review. Receipts show up here after a sync.
+                      </Trans>
+                    </td>
+                  </tr>
+                )}
+                {pending.map(item => {
+                  const best = bestProposal(item);
+                  const isLinking = linkingFor === item.messageId;
+                  return (
+                    <React.Fragment key={item.messageId}>
+                      <tr
                         style={{
-                          color: theme.pageTextSubdued,
-                          fontSize: 12,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
+                          borderTop: '1px solid ' + theme.tableBorder,
                         }}
                       >
-                        {item.subject ?? item.from ?? item.messageId}
-                      </Text>
-                    </ResizableCol>
-                    <ResizableCol col="amount" flex={0.9}>
-                      <FinancialText style={{ textAlign: 'right' }}>
-                        {integerToCurrency(receiptAmount(item))}
-                      </FinancialText>
-                    </ResizableCol>
-                    <ResizableCol col="date" flex={0.9}>
-                      <Text>{item.receipt.date}</Text>
-                    </ResizableCol>
-                    <ResizableCol col="candidate" flex={2.2}>
-                      {best ? (
-                        <Text
+                        <td style={cell}>
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {item.receipt.merchant}
+                          </div>
+                          <div
+                            style={{
+                              color: theme.pageTextSubdued,
+                              fontSize: 12,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {item.subject ?? item.from ?? item.messageId}
+                          </div>
+                        </td>
+                        <td
                           style={{
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
+                            ...cell,
+                            textAlign: 'right',
+                            fontVariantNumeric: 'tabular-nums',
                           }}
                         >
-                          {best.transactionDate} ·{' '}
-                          {best.transactionPayee ?? '-'} ·{' '}
-                          {integerToCurrency(best.transactionAmount)}
-                        </Text>
-                      ) : (
-                        <Text style={{ color: theme.pageTextSubdued }}>
-                          <Trans>No match found yet</Trans>
-                        </Text>
-                      )}
-                    </ResizableCol>
-                    <View
-                      style={{
-                        width: 250,
-                        flexDirection: 'row',
-                        justifyContent: 'flex-end',
-                        gap: 5,
-                      }}
-                    >
-                      {best && (
-                        <>
-                          <Button
-                            variant="primary"
-                            isDisabled={isBusy}
-                            onPress={() => {
-                              void act(() =>
-                                send('email-receipts-apply', {
-                                  proposalId: best.id,
-                                }),
-                              );
+                          {integerToCurrency(receiptAmount(item))}
+                        </td>
+                        <td style={cell}>{item.receipt.date}</td>
+                        <td
+                          style={{
+                            ...cell,
+                            color: best
+                              ? theme.pageText
+                              : theme.pageTextSubdued,
+                          }}
+                        >
+                          {best
+                            ? `${best.transactionDate} · ${best.transactionPayee ?? '-'} · ${integerToCurrency(best.transactionAmount)}`
+                            : t('No match found yet')}
+                        </td>
+                        <td style={{ ...cell, textAlign: 'right' }}>
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              justifyContent: 'flex-end',
+                              gap: 4,
+                              flexWrap: 'wrap',
                             }}
                           >
-                            <Trans>Apply</Trans>
-                          </Button>
-                          <Button
-                            isDisabled={isBusy}
-                            onPress={() => {
-                              void act(() =>
-                                send('email-receipts-reject', {
-                                  proposalId: best.id,
-                                }),
-                              );
-                            }}
-                          >
-                            <Trans>Reject</Trans>
-                          </Button>
-                        </>
+                            {best && (
+                              <>
+                                <Button
+                                  variant="primary"
+                                  isDisabled={isBusy}
+                                  onPress={() =>
+                                    void act(() =>
+                                      send('email-receipts-apply', {
+                                        proposalId: best.id,
+                                      }),
+                                    )
+                                  }
+                                >
+                                  {t('Apply')}
+                                </Button>
+                                <Button
+                                  isDisabled={isBusy}
+                                  onPress={() =>
+                                    void act(() =>
+                                      send('email-receipts-reject', {
+                                        proposalId: best.id,
+                                      }),
+                                    )
+                                  }
+                                >
+                                  {t('Reject')}
+                                </Button>
+                              </>
+                            )}
+                            <Button
+                              isDisabled={isBusy}
+                              onPress={() =>
+                                setLinkingFor(isLinking ? null : item.messageId)
+                              }
+                            >
+                              {t('Link…')}
+                            </Button>
+                            <Button
+                              variant="bare"
+                              isDisabled={isBusy}
+                              onPress={() =>
+                                void act(() =>
+                                  send('email-receipts-reject', {
+                                    messageId: item.messageId,
+                                  }),
+                                )
+                              }
+                            >
+                              {t('Dismiss')}
+                            </Button>
+                          </View>
+                        </td>
+                      </tr>
+                      {isLinking && (
+                        <tr>
+                          <td colSpan={5} style={{ padding: '0 10px 10px' }}>
+                            <LinkPicker
+                              item={item}
+                              busy={isBusy}
+                              onLink={transactionId =>
+                                void act(() =>
+                                  send('email-receipts-link-manual', {
+                                    messageId: item.messageId,
+                                    transactionId,
+                                  }),
+                                )
+                              }
+                            />
+                          </td>
+                        </tr>
                       )}
-                      <Button
-                        isDisabled={isBusy}
-                        onPress={() =>
-                          setLinkingFor(
-                            linkingFor === item.messageId
-                              ? null
-                              : item.messageId,
-                          )
-                        }
-                      >
-                        <Trans>Link…</Trans>
-                      </Button>
-                      <Button
-                        variant="bare"
-                        isDisabled={isBusy}
-                        onPress={() => {
-                          void act(() =>
-                            send('email-receipts-reject', {
-                              messageId: item.messageId,
-                            }),
-                          );
-                        }}
-                      >
-                        <Trans>Dismiss</Trans>
-                      </Button>
-                    </View>
-                  </View>
-                  {linkingFor === item.messageId && (
-                    <View style={{ padding: '0 12px 10px' }}>
-                      <LinkPicker
-                        item={item}
-                        busy={isBusy}
-                        onLink={transactionId => {
-                          void act(() =>
-                            send('email-receipts-link-manual', {
-                              messageId: item.messageId,
-                              transactionId,
-                            }),
-                          );
-                        }}
-                      />
-                    </View>
-                  )}
-                </View>
-              );
-            })}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </View>
         </View>
-      </ColumnWidthsProvider>
+      </View>
 
       {applied.length > 0 && (
         <View style={{ gap: 6 }}>
@@ -466,40 +492,35 @@ export function EmailReceiptsReviewTable() {
                     borderTop: idx > 0 ? '1px solid ' + theme.tableBorder : 0,
                   }}
                 >
-                  <View
+                  <Text
                     style={{
-                      flexDirection: 'row',
-                      gap: 10,
-                      alignItems: 'baseline',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    <Text style={{ fontWeight: 600 }}>
+                    <span style={{ fontWeight: 600 }}>
                       {item.receipt.merchant}
-                    </Text>
-                    <FinancialText>
-                      {integerToCurrency(receiptAmount(item))}
-                    </FinancialText>
-                    <Text
-                      style={{ color: theme.pageTextSubdued, fontSize: 12 }}
-                    >
-                      {appliedProposal.transactionDate}
-                      {' · '}
-                      {appliedProposal.transactionPayee ?? '-'}
-                      {' · '}
+                    </span>{' '}
+                    {integerToCurrency(receiptAmount(item))}
+                    <span style={{ color: theme.pageTextSubdued }}>
+                      {'  ·  '}
+                      {appliedProposal.transactionDate} ·{' '}
+                      {appliedProposal.transactionPayee ?? '-'} ·{' '}
                       {appliedProposal.status === 'auto_applied'
                         ? t('Auto-applied')
                         : t('Applied')}
-                    </Text>
-                  </View>
+                    </span>
+                  </Text>
                   <Button
                     isDisabled={isBusy}
-                    onPress={() => {
+                    onPress={() =>
                       void act(() =>
                         send('email-receipts-unapply', {
                           proposalId: appliedProposal.id,
                         }),
-                      );
-                    }}
+                      )
+                    }
                   >
                     <Trans>Undo</Trans>
                   </Button>

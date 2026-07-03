@@ -124,10 +124,16 @@ export async function findCandidates(
     'yyyy-MM-dd',
   );
 
+  // Match on the ABSOLUTE amount, not the signed one: the local model
+  // regularly flips charge vs. refund (e.g. reads a "NASCAR MOBILE $5.34"
+  // charge as a +5.34 refund), which would otherwise miss the real −5.34
+  // transaction sitting on the exact same day. The apply path takes its
+  // sign from the matched transaction, so a sign-tolerant match still
+  // produces correctly-signed splits.
   const { data } = await aqlQuery(
     q('transactions')
       .filter({
-        amount,
+        $or: [{ amount }, { amount: -amount }],
         date: { $gte: windowStart, $lte: windowEnd },
       })
       .select([
@@ -338,7 +344,11 @@ export async function applyProposal(
     );
   }
 
-  const sign = receipt.direction === 'refund' ? 1 : -1;
+  // Ground truth for direction is the matched transaction, not the model's
+  // extracted `direction` (it sometimes flips charge/refund). This keeps
+  // split children agreeing with the parent sign even when candidate
+  // matching was sign-tolerant.
+  const sign = trans.amount < 0 ? -1 : 1;
   const payeeId = await findOrCreatePayee(receipt.merchant);
   const note = receiptNote(receipt);
 
@@ -349,8 +359,8 @@ export async function applyProposal(
     childIds: [],
   };
 
-  // The exact-signed-amount gate guarantees trans.amount === sign * total, so
-  // each child (sign * |item|) always agrees with the parent sign. The one
+  // Sign comes from the matched transaction, so each child (sign * |item|)
+  // always agrees with the parent sign. The one
   // way an itemized split can go wrong is if the items OVERSHOOT the parent
   // (the model read a discount as a positive line, or hallucinated an item):
   // then the balancing remainder flips sign, producing a nonsensical
