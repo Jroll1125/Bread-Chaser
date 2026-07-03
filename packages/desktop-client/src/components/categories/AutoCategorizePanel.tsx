@@ -23,6 +23,8 @@ type ScanGroup = {
 };
 type ScanResult = {
   hasSeed: boolean;
+  seedPath: string;
+  seedError: string | null;
   uncategorized: number;
   matched: number;
   groups: ScanGroup[];
@@ -193,12 +195,28 @@ export function AutoCategorizePanel() {
         )}
 
         {scan && !scan.hasSeed && (
-          <Text style={{ color: theme.pageTextSubdued, lineHeight: 1.5 }}>
-            <Trans>
-              No training data found. Add an autocat-seed.json file to your data
-              folder (built from your categorized history) and scan again.
-            </Trans>
-          </Text>
+          <View style={{ gap: 4 }}>
+            <Text style={{ color: theme.pageTextSubdued, lineHeight: 1.5 }}>
+              <Trans>
+                No training data found. The app looked for an autocat-seed.json
+                file at:
+              </Trans>
+            </Text>
+            <Text
+              style={{
+                fontSize: 12,
+                color: theme.pageText,
+                wordBreak: 'break-all',
+              }}
+            >
+              {scan.seedPath || '(data dir unavailable)'}
+            </Text>
+            {scan.seedError && (
+              <Text style={{ fontSize: 12, color: theme.errorText }}>
+                {scan.seedError}
+              </Text>
+            )}
+          </View>
         )}
 
         {scan && scan.hasSeed && scan.groups.length === 0 && (
