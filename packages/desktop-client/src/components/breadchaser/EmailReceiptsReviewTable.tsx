@@ -473,60 +473,128 @@ export function EmailReceiptsReviewTable() {
               overflow: 'hidden',
             }}
           >
-            {applied.map((item, idx) => {
-              const appliedProposal = item.proposals.find(
-                p => p.status === 'applied' || p.status === 'auto_applied',
-              );
-              if (!appliedProposal) {
-                return null;
-              }
-              return (
-                <View
-                  key={item.messageId}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 10,
-                    padding: '6px 12px',
-                    borderTop: idx > 0 ? '1px solid ' + theme.tableBorder : 0,
-                  }}
-                >
-                  <Text
-                    style={{
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    <span style={{ fontWeight: 600 }}>
-                      {item.receipt.merchant}
-                    </span>{' '}
-                    {integerToCurrency(receiptAmount(item))}
-                    <span style={{ color: theme.pageTextSubdued }}>
-                      {'  ·  '}
-                      {appliedProposal.transactionDate} ·{' '}
-                      {appliedProposal.transactionPayee ?? '-'} ·{' '}
-                      {appliedProposal.status === 'auto_applied'
-                        ? t('Auto-applied')
-                        : t('Applied')}
-                    </span>
-                  </Text>
-                  <Button
-                    isDisabled={isBusy}
-                    onPress={() =>
-                      void act(() =>
-                        send('email-receipts-unapply', {
-                          proposalId: appliedProposal.id,
-                        }),
-                      )
+            <View style={{ overflowX: 'auto' }}>
+              <table
+                style={{
+                  width: '100%',
+                  minWidth: 720,
+                  tableLayout: 'fixed',
+                  borderCollapse: 'collapse',
+                }}
+              >
+                <colgroup>
+                  <col style={{ width: '30%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '24%' }} />
+                  <col style={{ width: '25%' }} />
+                </colgroup>
+                <thead>
+                  <tr style={{ backgroundColor: theme.tableRowHeaderBackground }}>
+                    <th style={headCell}>{t('Receipt')}</th>
+                    <th style={{ ...headCell, textAlign: 'right' }}>
+                      {t('Amount')}
+                    </th>
+                    <th style={headCell}>{t('Date')}</th>
+                    <th style={headCell}>{t('Applied to')}</th>
+                    <th style={{ ...headCell, textAlign: 'right' }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {applied.map(item => {
+                    const appliedProposal = item.proposals.find(
+                      p =>
+                        p.status === 'applied' || p.status === 'auto_applied',
+                    );
+                    if (!appliedProposal) {
+                      return null;
                     }
-                  >
-                    <Trans>Undo</Trans>
-                  </Button>
-                </View>
-              );
-            })}
+                    return (
+                      <tr
+                        key={item.messageId}
+                        style={{
+                          borderTop: '1px solid ' + theme.tableBorder,
+                        }}
+                      >
+                        <td style={cell}>
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {item.receipt.merchant}
+                          </div>
+                          <div
+                            style={{
+                              color: theme.pageTextSubdued,
+                              fontSize: 12,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {item.subject ?? item.from ?? item.messageId}
+                          </div>
+                        </td>
+                        <td
+                          style={{
+                            ...cell,
+                            textAlign: 'right',
+                            fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          {integerToCurrency(receiptAmount(item))}
+                        </td>
+                        <td style={cell}>{item.receipt.date}</td>
+                        <td style={cell}>
+                          <div
+                            style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {appliedProposal.transactionDate} ·{' '}
+                            {appliedProposal.transactionPayee ?? '-'}
+                          </div>
+                          <div
+                            style={{
+                              color: theme.pageTextSubdued,
+                              fontSize: 12,
+                            }}
+                          >
+                            {appliedProposal.status === 'auto_applied'
+                              ? t('Auto-applied')
+                              : t('Applied')}
+                          </div>
+                        </td>
+                        <td style={{ ...cell, textAlign: 'right' }}>
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              justifyContent: 'flex-end',
+                            }}
+                          >
+                            <Button
+                              isDisabled={isBusy}
+                              onPress={() =>
+                                void act(() =>
+                                  send('email-receipts-unapply', {
+                                    proposalId: appliedProposal.id,
+                                  }),
+                                )
+                              }
+                            >
+                              {t('Undo')}
+                            </Button>
+                          </View>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </View>
           </View>
         </View>
       )}

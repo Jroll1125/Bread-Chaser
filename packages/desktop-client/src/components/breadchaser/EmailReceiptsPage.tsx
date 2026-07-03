@@ -25,8 +25,12 @@ export function EmailReceiptsPage() {
         paddingBottom: MOBILE_NAV_HEIGHT,
       }}
     >
-      <View style={{ marginTop: '1em', gap: 18 }}>
-        <View style={{ maxWidth: 600, gap: 12 }}>
+      {/* flexShrink: 0 on each block is load-bearing: Page's `main` is a
+          fixed-height flex column, and View defaults to flexShrink:1 +
+          minHeight:0, so without this the long review table squeezes the
+          card to zero height and overflows on top of it. */}
+      <View style={{ marginTop: '1em', gap: 18, flexShrink: 0 }}>
+        <View style={{ maxWidth: 600, gap: 12, flexShrink: 0 }}>
           <Text style={{ color: theme.pageTextSubdued, lineHeight: 1.5 }}>
             <Trans>
               Receipts from your Gmail are read by a local AI model on this
@@ -37,7 +41,7 @@ export function EmailReceiptsPage() {
           </Text>
           <EmailReceiptsCard />
         </View>
-        <View style={{ maxWidth: 1000 }}>
+        <View style={{ maxWidth: 1000, flexShrink: 0 }}>
           <EmailReceiptsReviewTable />
         </View>
       </View>
