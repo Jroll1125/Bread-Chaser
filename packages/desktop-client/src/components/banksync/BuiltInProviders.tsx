@@ -133,6 +133,9 @@ export function BuiltInProviders({
                             if (item === 'reconfigure') {
                               void provider.onReset();
                             }
+                            if (item === 'replay-history') {
+                              void provider.onReplayHistory?.();
+                            }
                           }}
                           items={[
                             {
@@ -141,6 +144,14 @@ export function BuiltInProviders({
                                 provider: provider.displayName,
                               }),
                             },
+                            ...(provider.onReplayHistory
+                              ? [
+                                  {
+                                    name: 'replay-history',
+                                    text: t('Replay full history'),
+                                  },
+                                ]
+                              : []),
                           ]}
                         />
                       </Dialog>

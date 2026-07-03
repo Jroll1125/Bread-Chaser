@@ -66,6 +66,7 @@ export type AccountHandlers = {
   'plaid-create-link-token': typeof plaidCreateLinkToken;
   'plaid-poll-link': typeof pollPlaidLink;
   'plaid-sandbox-link': typeof plaidSandboxLink;
+  'plaid-replay-history': typeof plaidReplayHistory;
   'email-receipts-status': typeof emailReceiptsStatus;
   'email-receipts-configure': typeof emailReceiptsConfigure;
   'email-receipts-set-auto-apply': typeof emailReceiptsSetAutoApply;
@@ -438,6 +439,36 @@ async function plaidSandboxLink(
   }
   const item = await plaid.createSandboxItem(institutionId);
   return linkPlaidItem(item);
+}
+
+/**
+ * Drop the /transactions/sync cursor for every Plaid-linked account so the
+ * next sync replays the item's full history window. Existing transactions
+ * dedupe by imported_id, so a replay updates rather than duplicates; splits
+ * survive because reconciliation never touches subtransactions. Returns the
+ * affected account ids — the caller kicks off the actual re-sync.
+ */
+async function plaidReplayHistory(): Promise<{
+  accountIds: Array<AccountEntity['id']>;
+}> {
+  const rows = await db.all<{
+    id: string;
+    account_id: string;
+    bank_id: string;
+  }>(
+    `SELECT a.id, a.account_id, b.bank_id
+       FROM accounts a
+       JOIN banks b ON a.bank = b.id
+      WHERE a.account_sync_source = 'plaid'
+        AND a.tombstone = 0 AND a.closed = 0`,
+  );
+  for (const row of rows) {
+    await plaid.resetPlaidCursor(row.bank_id, row.account_id);
+  }
+  logger.log(
+    `Plaid replay: reset ${rows.length} cursor(s); next sync replays full history`,
+  );
+  return { accountIds: rows.map(row => row.id) };
 }
 
 async function emailReceiptsStatus() {
@@ -1959,6 +1990,7 @@ app.method('plaid-configure', plaidConfigure);
 app.method('plaid-create-link-token', plaidCreateLinkToken);
 app.method('plaid-poll-link', pollPlaidLink);
 app.method('plaid-sandbox-link', plaidSandboxLink);
+app.method('plaid-replay-history', plaidReplayHistory);
 app.method('email-receipts-status', emailReceiptsStatus);
 app.method('email-receipts-configure', emailReceiptsConfigure);
 app.method('email-receipts-set-auto-apply', emailReceiptsSetAutoApply);

@@ -72,6 +72,8 @@ export type BuiltInBankSyncProviderState = {
   isSyncing?: boolean;
   onSandboxLink?: ProviderAction;
   isSandboxLinking?: boolean;
+  // Reset every sync cursor and re-download the full history window.
+  onReplayHistory?: ProviderAction;
 };
 
 type SecretSetResponse = {
@@ -711,6 +713,68 @@ export function useBuiltInBankSyncProviders({
     setIsSyncingPlaid(false);
   }, [dispatch, plaidAccounts, accountsQuery, t]);
 
+  // Dev/recovery: wipe every Plaid sync cursor, then re-sync so the full
+  // history window replays. Existing transactions dedupe by imported_id, so
+  // this refreshes rather than duplicates.
+  const onPlaidReplayHistory = useCallback(async () => {
+    setIsSyncingPlaid(true);
+    try {
+      const { accountIds } = await send('plaid-replay-history');
+      if (accountIds.length === 0) {
+        dispatch(
+          addNotification({
+            notification: {
+              type: 'message',
+              message: t('No Plaid-linked accounts to replay.'),
+            },
+          }),
+        );
+      } else {
+        const res = await send('accounts-bank-sync', { ids: accountIds });
+        if (res.errors.length > 0) {
+          dispatch(
+            addNotification({
+              notification: {
+                type: 'error',
+                title: t('Plaid replay'),
+                message: res.errors.map(error => error.message).join(' '),
+                timeout: 5000,
+              },
+            }),
+          );
+        } else {
+          dispatch(
+            addNotification({
+              notification: {
+                type: 'message',
+                message: t(
+                  'Replayed full history across {{accounts}} account(s). {{count}} new transaction(s).',
+                  {
+                    accounts: accountIds.length,
+                    count: res.newTransactions.length,
+                  },
+                ),
+              },
+            }),
+          );
+        }
+        void accountsQuery.refetch();
+      }
+    } catch (error) {
+      dispatch(
+        addNotification({
+          notification: {
+            type: 'error',
+            title: t('Plaid replay'),
+            message: error instanceof Error ? error.message : String(error),
+            timeout: 5000,
+          },
+        }),
+      );
+    }
+    setIsSyncingPlaid(false);
+  }, [dispatch, accountsQuery, t]);
+
   const onPlaidSandbox = useCallback(async () => {
     setIsSandboxLinking(true);
     try {
@@ -760,6 +824,8 @@ export function useBuiltInBankSyncProviders({
         onSandboxLink:
           plaidStatus?.env === 'sandbox' ? onPlaidSandbox : undefined,
         isSandboxLinking,
+        onReplayHistory:
+          plaidAccounts.length > 0 ? onPlaidReplayHistory : undefined,
       },
       ...BUILT_IN_BANK_SYNC_PROVIDERS.map(providerId => {
         if (providerId === 'goCardless') {
@@ -875,6 +941,7 @@ export function useBuiltInBankSyncProviders({
     onPlaidReset,
     onPlaidSandbox,
     onPlaidSync,
+    onPlaidReplayHistory,
     plaidAccounts,
     plaidStatus,
     isSyncingPlaid,
