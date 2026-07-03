@@ -17,6 +17,11 @@ import {
 } from '@actual-app/core/shared/mortgage';
 import type { AccountEntity } from '@actual-app/core/types/models';
 
+import {
+  ColumnResizeGrip,
+  ColumnWidthsProvider,
+  useColumnWidth,
+} from '#components/table/columnResize';
 import { useNavigate } from '#hooks/useNavigate';
 import { pushModal } from '#modals/modalsSlice';
 import { useDispatch } from '#redux';
@@ -436,109 +441,7 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
       </View>
 
       {showPayments && payments.length > 0 && (
-        <View
-          style={{
-            border: '1px solid ' + theme.tableBorder,
-            borderRadius: 8,
-            overflow: 'hidden',
-          }}
-        >
-          <View
-            style={{
-              flexDirection: 'row',
-              padding: '6px 12px',
-              backgroundColor: theme.tableRowHeaderBackground,
-            }}
-          >
-            <Text style={{ flex: 1.4, fontSize: 12, color: theme.pageTextSubdued }}>
-              <Trans>Paid</Trans>
-            </Text>
-            <Text style={{ flex: 1.6, fontSize: 12, color: theme.pageTextSubdued }}>
-              <Trans>From</Trans>
-            </Text>
-            <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
-              <Trans>Interest</Trans>
-            </Text>
-            <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
-              <Trans>Escrow</Trans>
-            </Text>
-            <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
-              <Trans>Principal</Trans>
-            </Text>
-            <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
-              <Trans>Total</Trans>
-            </Text>
-            <Text style={{ width: 40 }} />
-          </View>
-          {payments.map(p => (
-            <View
-              key={p.parentId}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                padding: '4px 12px',
-                borderTop: '1px solid ' + theme.tableBorder,
-              }}
-            >
-              <Text style={{ flex: 1.4, fontSize: 12 }}>{p.date}</Text>
-              <View style={{ flex: 1.6, flexDirection: 'row', alignItems: 'center' }}>
-                <Button
-                  variant="bare"
-                  style={{ fontSize: 12, padding: '2px 4px' }}
-                  onPress={() => navigate('/accounts/' + p.fundingAccountId)}
-                >
-                  {p.fundingAccountName}
-                </Button>
-                {!p.hasTransfer && (
-                  <Text
-                    style={{ fontSize: 11, color: theme.warningText }}
-                    title={t(
-                      'The Principal line is not linked as a transfer, so this payment is missing from the loan ledger.',
-                    )}
-                  >
-                    ⚠
-                  </Text>
-                )}
-              </View>
-              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right' }}>
-                {moneyCents(p.interest)}
-              </Text>
-              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right' }}>
-                {moneyCents(p.propertyTax + p.homeInsurance + p.pmi)}
-              </Text>
-              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', fontWeight: 500 }}>
-                {moneyCents(p.principal)}
-              </Text>
-              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right' }}>
-                {moneyCents(p.total)}
-              </Text>
-              <View style={{ width: 40, alignItems: 'flex-end' }}>
-                <Button
-                  variant="bare"
-                  style={{ fontSize: 12, padding: '2px 4px' }}
-                  aria-label={t('Attachments')}
-                  onPress={() =>
-                    dispatch(
-                      pushModal({
-                        modal: {
-                          name: 'transaction-attachments',
-                          options: { transactionId: p.parentId },
-                        },
-                      }),
-                    )
-                  }
-                >
-                  {p.attachmentCount > 0 ? `📎${p.attachmentCount}` : '📎'}
-                </Button>
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {showDetails && effectivePI != null && (
-        <>
-          {/* Amortization schedule */}
+        <ColumnWidthsProvider tableId="mortgage-payments">
           <View
             style={{
               border: '1px solid ' + theme.tableBorder,
@@ -553,52 +456,204 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
                 backgroundColor: theme.tableRowHeaderBackground,
               }}
             >
-              <Text style={{ flex: 2, fontSize: 12, color: theme.pageTextSubdued }}>
-                <Trans>Upcoming</Trans>
-              </Text>
-              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
-                <Trans>Principal</Trans>
-              </Text>
-              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
-                <Trans>Interest</Trans>
-              </Text>
-              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
-                <Trans>Escrow</Trans>
-              </Text>
-              <Text style={{ flex: 1.3, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
-                <Trans>Balance</Trans>
-              </Text>
+              <ResizableCol col="paid" flex={1.4} grip>
+                <Text style={{ fontSize: 12, color: theme.pageTextSubdued }}>
+                  <Trans>Paid</Trans>
+                </Text>
+              </ResizableCol>
+              <ResizableCol col="from" flex={1.6} grip>
+                <Text style={{ fontSize: 12, color: theme.pageTextSubdued }}>
+                  <Trans>From</Trans>
+                </Text>
+              </ResizableCol>
+              <ResizableCol col="interest" flex={1} grip>
+                <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+                  <Trans>Interest</Trans>
+                </Text>
+              </ResizableCol>
+              <ResizableCol col="escrow" flex={1} grip>
+                <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+                  <Trans>Escrow</Trans>
+                </Text>
+              </ResizableCol>
+              <ResizableCol col="principal" flex={1} grip>
+                <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+                  <Trans>Principal</Trans>
+                </Text>
+              </ResizableCol>
+              <ResizableCol col="total" flex={1} grip>
+                <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+                  <Trans>Total</Trans>
+                </Text>
+              </ResizableCol>
+              <Text style={{ width: 40 }} />
             </View>
-            {schedule.map((row, i) => (
+            {payments.map(p => (
               <View
-                key={row.index}
+                key={p.parentId}
                 style={{
                   flexDirection: 'row',
-                  padding: '5px 12px',
+                  alignItems: 'center',
+                  padding: '4px 12px',
                   borderTop: '1px solid ' + theme.tableBorder,
-                  backgroundColor:
-                    i === 0 ? theme.tableRowBackgroundHighlight : undefined,
                 }}
               >
-                <Text style={{ flex: 2, fontSize: 12 }}>
-                  {row.date ? monthLabel(row.date) : `#${row.index}`}
-                  {i === 0 ? t(' · next') : ''}
-                </Text>
-                <Text style={{ flex: 1, fontSize: 12, textAlign: 'right' }}>
-                  {moneyCents(row.principal)}
-                </Text>
-                <Text style={{ flex: 1, fontSize: 12, textAlign: 'right' }}>
-                  {moneyCents(row.interest)}
-                </Text>
-                <Text style={{ flex: 1, fontSize: 12, textAlign: 'right' }}>
-                  {moneyCents(row.escrow)}
-                </Text>
-                <Text style={{ flex: 1.3, fontSize: 12, textAlign: 'right' }}>
-                  {moneyCents(row.balance)}
-                </Text>
+                <ResizableCol col="paid" flex={1.4}>
+                  <Text style={{ fontSize: 12 }}>{p.date}</Text>
+                </ResizableCol>
+                <ResizableCol
+                  col="from"
+                  flex={1.6}
+                  style={{ flexDirection: 'row', alignItems: 'center' }}
+                >
+                  <Button
+                    variant="bare"
+                    style={{ fontSize: 12, padding: '2px 4px' }}
+                    onPress={() => navigate('/accounts/' + p.fundingAccountId)}
+                  >
+                    {p.fundingAccountName}
+                  </Button>
+                  {!p.hasTransfer && (
+                    <Text
+                      style={{ fontSize: 11, color: theme.warningText }}
+                      title={t(
+                        'The Principal line is not linked as a transfer, so this payment is missing from the loan ledger.',
+                      )}
+                    >
+                      ⚠
+                    </Text>
+                  )}
+                </ResizableCol>
+                <ResizableCol col="interest" flex={1}>
+                  <Text style={{ fontSize: 12, textAlign: 'right' }}>
+                    {moneyCents(p.interest)}
+                  </Text>
+                </ResizableCol>
+                <ResizableCol col="escrow" flex={1}>
+                  <Text style={{ fontSize: 12, textAlign: 'right' }}>
+                    {moneyCents(p.propertyTax + p.homeInsurance + p.pmi)}
+                  </Text>
+                </ResizableCol>
+                <ResizableCol col="principal" flex={1}>
+                  <Text style={{ fontSize: 12, textAlign: 'right', fontWeight: 500 }}>
+                    {moneyCents(p.principal)}
+                  </Text>
+                </ResizableCol>
+                <ResizableCol col="total" flex={1}>
+                  <Text style={{ fontSize: 12, textAlign: 'right' }}>
+                    {moneyCents(p.total)}
+                  </Text>
+                </ResizableCol>
+                <View style={{ width: 40, alignItems: 'flex-end' }}>
+                  <Button
+                    variant="bare"
+                    style={{ fontSize: 12, padding: '2px 4px' }}
+                    aria-label={t('Attachments')}
+                    onPress={() =>
+                      dispatch(
+                        pushModal({
+                          modal: {
+                            name: 'transaction-attachments',
+                            options: { transactionId: p.parentId },
+                          },
+                        }),
+                      )
+                    }
+                  >
+                    {p.attachmentCount > 0 ? `📎${p.attachmentCount}` : '📎'}
+                  </Button>
+                </View>
               </View>
             ))}
           </View>
+        </ColumnWidthsProvider>
+      )}
+
+      {showDetails && effectivePI != null && (
+        <>
+          {/* Amortization schedule */}
+          <ColumnWidthsProvider tableId="mortgage-schedule">
+            <View
+              style={{
+                border: '1px solid ' + theme.tableBorder,
+                borderRadius: 8,
+                overflow: 'hidden',
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  padding: '6px 12px',
+                  backgroundColor: theme.tableRowHeaderBackground,
+                }}
+              >
+                <ResizableCol col="upcoming" flex={2} grip>
+                  <Text style={{ fontSize: 12, color: theme.pageTextSubdued }}>
+                    <Trans>Upcoming</Trans>
+                  </Text>
+                </ResizableCol>
+                <ResizableCol col="principal" flex={1} grip>
+                  <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+                    <Trans>Principal</Trans>
+                  </Text>
+                </ResizableCol>
+                <ResizableCol col="interest" flex={1} grip>
+                  <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+                    <Trans>Interest</Trans>
+                  </Text>
+                </ResizableCol>
+                <ResizableCol col="escrow" flex={1} grip>
+                  <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+                    <Trans>Escrow</Trans>
+                  </Text>
+                </ResizableCol>
+                <ResizableCol col="balance" flex={1.3} grip>
+                  <Text style={{ fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+                    <Trans>Balance</Trans>
+                  </Text>
+                </ResizableCol>
+              </View>
+              {schedule.map((row, i) => (
+                <View
+                  key={row.index}
+                  style={{
+                    flexDirection: 'row',
+                    padding: '5px 12px',
+                    borderTop: '1px solid ' + theme.tableBorder,
+                    backgroundColor:
+                      i === 0 ? theme.tableRowBackgroundHighlight : undefined,
+                  }}
+                >
+                  <ResizableCol col="upcoming" flex={2}>
+                    <Text style={{ fontSize: 12 }}>
+                      {row.date ? monthLabel(row.date) : `#${row.index}`}
+                      {i === 0 ? t(' · next') : ''}
+                    </Text>
+                  </ResizableCol>
+                  <ResizableCol col="principal" flex={1}>
+                    <Text style={{ fontSize: 12, textAlign: 'right' }}>
+                      {moneyCents(row.principal)}
+                    </Text>
+                  </ResizableCol>
+                  <ResizableCol col="interest" flex={1}>
+                    <Text style={{ fontSize: 12, textAlign: 'right' }}>
+                      {moneyCents(row.interest)}
+                    </Text>
+                  </ResizableCol>
+                  <ResizableCol col="escrow" flex={1}>
+                    <Text style={{ fontSize: 12, textAlign: 'right' }}>
+                      {moneyCents(row.escrow)}
+                    </Text>
+                  </ResizableCol>
+                  <ResizableCol col="balance" flex={1.3}>
+                    <Text style={{ fontSize: 12, textAlign: 'right' }}>
+                      {moneyCents(row.balance)}
+                    </Text>
+                  </ResizableCol>
+                </View>
+              ))}
+            </View>
+          </ColumnWidthsProvider>
 
           {/* Payoff calculator */}
           <View
@@ -669,6 +724,40 @@ function Row({ label, value }: { label: string; value: string }) {
     >
       <Text style={{ fontSize: 13, color: theme.pageTextSubdued }}>{label}</Text>
       <Text style={{ fontSize: 13, fontWeight: 500 }}>{value}</Text>
+    </View>
+  );
+}
+
+// A flex table column that honors a drag-resized pixel override: pinned to
+// px when the user resized it, proportional flex otherwise. Header cells
+// render the drag grip.
+function ResizableCol({
+  col,
+  flex,
+  grip,
+  style,
+  children,
+}: {
+  col: string;
+  flex: number;
+  grip?: boolean;
+  style?: React.CSSProperties;
+  children?: React.ReactNode;
+}) {
+  const width = useColumnWidth(col, undefined);
+  return (
+    <View
+      style={{
+        ...(typeof width === 'number'
+          ? { width, flexShrink: 0 }
+          : { flex }),
+        position: 'relative',
+        justifyContent: 'center',
+        ...style,
+      }}
+    >
+      {children}
+      {grip && <ColumnResizeGrip column={col} />}
     </View>
   );
 }

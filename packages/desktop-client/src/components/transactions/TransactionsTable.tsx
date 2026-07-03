@@ -104,6 +104,11 @@ import type {
   TableNavigator,
   TableProps,
 } from '#components/table';
+import {
+  ColumnResizeGrip,
+  ColumnWidthsProvider,
+  useColumnWidth,
+} from '#components/table/columnResize';
 import { useAttachedTransactionIds } from '#hooks/useAttachedTransactionIds';
 import {
   SchedulesProvider,
@@ -452,6 +457,9 @@ function HeaderCell({
   icon,
   onClick,
 }: HeaderCellProps) {
+  // A drag-resized column pins to the user's pixel width; otherwise the
+  // default (often 'flex') keeps responding to the window.
+  const effectiveWidth = useColumnWidth(id, width);
   const style = {
     whiteSpace: 'nowrap' as CSSProperties['whiteSpace'],
     overflow: 'hidden',
@@ -464,10 +472,11 @@ function HeaderCell({
 
   return (
     <CustomCell
-      width={width}
+      width={effectiveWidth}
       name={id}
       alignItems={alignItems}
       value={value}
+      rightOverlay={<ColumnResizeGrip column={id} />}
       style={{
         borderTopWidth: 0,
         borderBottomWidth: 0,
@@ -532,6 +541,7 @@ function PayeeCell({
 }: PayeeCellProps) {
   const isCreatingPayee = useRef(false);
   const { t } = useTranslation();
+  const payeeWidth = useColumnWidth('payee', 'flex');
 
   const dispatch = useDispatch();
 
@@ -542,7 +552,7 @@ function PayeeCell({
   return transaction.is_parent ? (
     <Cell
       name="payee"
-      width="flex"
+      width={payeeWidth}
       focused={focused}
       style={{ padding: 0 }}
       plain
@@ -646,7 +656,7 @@ function PayeeCell({
     </Cell>
   ) : (
     <CustomCell
-      width="flex"
+      width={payeeWidth}
       name="payee"
       textAlign="flex"
       value={payee?.id}
@@ -1016,6 +1026,16 @@ const Transaction = memo(function Transaction({
   const dispatch = useDispatch();
   const dispatchSelected = useSelectedDispatch();
   const triggerRef = useRef(null);
+
+  // Effective column widths — the user's drag-resized pixel widths where set,
+  // the responsive defaults otherwise. Must stay in lockstep with
+  // TransactionHeader's columns.
+  const dateWidth = useColumnWidth('date', 110);
+  const accountWidth = useColumnWidth('account', 'flex');
+  const categoryWidth = useColumnWidth('category', 'flex');
+  const paymentWidth = useColumnWidth('payment', 100);
+  const depositWidth = useColumnWidth('deposit', 100);
+  const balanceWidth = useColumnWidth('balance', 103);
 
   const [prevShowZero, setPrevShowZero] = useState(showZeroInDeposit);
   const [prevTransaction, setPrevTransaction] = useState(originalTransaction);
@@ -1455,9 +1475,9 @@ const Transaction = memo(function Transaction({
         {isChild && (
           <Field
             /* Checkmark blank placeholder for Child transaction */
-            width={110}
+            width={dateWidth}
             style={{
-              width: 110,
+              width: dateWidth,
               backgroundColor: theme.tableRowBackgroundHover,
               border: 0, // known z-order issue, bottom border for parent transaction hidden
             }}
@@ -1468,7 +1488,9 @@ const Transaction = memo(function Transaction({
           <Field
             /* Account blank placeholder for Child transaction */
             style={{
-              flex: 1,
+              ...(accountWidth === 'flex'
+                ? { flex: 1 }
+                : { width: accountWidth }),
               backgroundColor: theme.tableRowBackgroundHover,
               border: 0,
             }}
@@ -1526,7 +1548,7 @@ const Transaction = memo(function Transaction({
           <CustomCell
             /* Date field for non-child transaction */
             name="date"
-            width={110}
+            width={dateWidth}
             textAlign="flex"
             exposed={focusedField === 'date'}
             value={date}
@@ -1564,7 +1586,7 @@ const Transaction = memo(function Transaction({
           <CustomCell
             /* Account field for non-child transaction */
             name="account"
-            width="flex"
+            width={accountWidth}
             textAlign="flex"
             value={accountId}
             formatter={acctId => {
@@ -1647,7 +1669,7 @@ const Transaction = memo(function Transaction({
           <Cell
             /* Category field (Split button) for parent transactions */
             name="category"
-            width="flex"
+            width={categoryWidth}
             focused={focusedField === 'category'}
             style={{
               padding: 0,
@@ -1743,7 +1765,7 @@ const Transaction = memo(function Transaction({
             /* Category field for transfer and off budget transactions
               (NOT preview, it is covered first) */
             name="category"
-            width="flex"
+            width={categoryWidth}
             exposed={focusedField === 'category'}
             focused={focusedField === 'category'}
             onExpose={name => onEdit(id, name)}
@@ -1771,7 +1793,7 @@ const Transaction = memo(function Transaction({
           <CustomCell
             /* Category field for normal and child transactions */
             name="category"
-            width="flex"
+            width={categoryWidth}
             textAlign="flex"
             value={categoryId}
             formatter={value =>
@@ -1836,7 +1858,7 @@ const Transaction = memo(function Transaction({
         <InputCell
           /* Debit field for all transactions */
           type="input"
-          width={100}
+          width={paymentWidth}
           name="debit"
           exposed={focusedField === 'debit'}
           focused={focusedField === 'debit'}
@@ -1867,7 +1889,7 @@ const Transaction = memo(function Transaction({
         <InputCell
           /* Credit field for all transactions */
           type="input"
-          width={100}
+          width={depositWidth}
           name="credit"
           exposed={focusedField === 'credit'}
           focused={focusedField === 'credit'}
@@ -1911,7 +1933,7 @@ const Transaction = memo(function Transaction({
                   : theme.numberPositive,
             }}
             style={{ ...styles.tnum, ...amountStyle }}
-            width={103}
+            width={balanceWidth}
             textAlign="right"
             privacyFilter
           />
@@ -2029,6 +2051,7 @@ function NotesCell({
   onExpose,
 }: NotesCellProps) {
   const [inputValue, setInputValue] = useState(note);
+  const notesWidth = useColumnWidth('notes', 'flex');
   useEffect(() => {
     setInputValue(note);
   }, [note, setInputValue]);
@@ -2045,7 +2068,7 @@ function NotesCell({
 
   return (
     <CustomCell
-      width="flex"
+      width={notesWidth}
       name="notes"
       value={displayedNote}
       valueStyle={valueStyle}
@@ -2617,15 +2640,16 @@ function TransactionTableInner({
   };
 
   return (
-    <View
-      innerRef={containerRef}
-      style={{
-        flex: 1,
-        cursor: 'default',
-        ...props.style,
-      }}
-    >
-      <View>
+    <ColumnWidthsProvider tableId="transactions">
+      <View
+        innerRef={containerRef}
+        style={{
+          flex: 1,
+          cursor: 'default',
+          ...props.style,
+        }}
+      >
+        <View>
         <TransactionHeader
           hasSelected={props.selectedItems.size > 0}
           showAccount={props.showAccount}
@@ -2714,8 +2738,9 @@ function TransactionTableInner({
             }}
           />
         )}
+        </View>
       </View>
-    </View>
+    </ColumnWidthsProvider>
   );
 }
 

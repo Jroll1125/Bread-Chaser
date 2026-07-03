@@ -163,6 +163,9 @@ type CellProps = Omit<ComponentProps<typeof View>, 'children' | 'value'> & {
   privacyFilter?: ComponentProps<
     typeof ConditionalPrivacyFilter
   >['privacyFilter'];
+  // Rendered as a direct child of the cell's positioned container — used for
+  // edge-anchored chrome like the column resize grip.
+  rightOverlay?: ReactNode;
 };
 export function Cell({
   width,
@@ -180,6 +183,7 @@ export function Cell({
   valueStyle,
   unexposedContent,
   privacyFilter,
+  rightOverlay,
   ...viewProps
 }: CellProps) {
   const mouseCoords = useRef(null);
@@ -275,6 +279,7 @@ export function Cell({
       data-testid={name}
     >
       {conditionalPrivacyFilter}
+      {rightOverlay}
     </View>
   );
 }

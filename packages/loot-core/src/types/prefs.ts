@@ -96,6 +96,9 @@ export type LocalPrefs = Partial<{
   reportsViewSummary: boolean;
   reportsViewLabel: boolean;
   sidebarWidth: number;
+  // Per-table, per-column pixel overrides from drag-resizing column headers;
+  // a column absent here keeps its default (usually window-responsive flex).
+  tableColumnWidths: Record<string, Record<string, number>>;
   'mobile.showSpentColumn': boolean;
 }>;
 
