@@ -7,6 +7,7 @@ import { View } from '@actual-app/components/view';
 
 import { BankSyncCard } from '#components/breadchaser/BankSyncCard';
 import { EmailReceiptsCard } from '#components/breadchaser/EmailReceiptsCard';
+import { LocalApiCard } from '#components/breadchaser/LocalApiCard';
 import { Page } from '#components/Page';
 
 type PillarStatus = 'in-progress' | 'planned';
@@ -78,6 +79,7 @@ export function BreadChaserPage() {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 15 }}>
           <BankSyncCard />
           <EmailReceiptsCard />
+          <LocalApiCard />
           <PillarCard
             title={t('Dedup review')}
             description={t(
