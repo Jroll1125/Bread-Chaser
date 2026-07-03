@@ -444,6 +444,78 @@ describe('mortgage statement import', () => {
     expect(p.payment).toBe(280_000);
   });
 
+  it('prefers the already-split payment over a same-amount unsplit twin', async () => {
+    await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
+    await setEscrowPeriod({
+      accountId: 'mtg',
+      effectiveDate: '2026-01-01',
+      propertyTaxMonthly: 40_000,
+      homeInsuranceMonthly: 10_000,
+      pmiMonthly: 0,
+    });
+    // The real payment (due 2026-02-01) was split on an earlier pass…
+    await addPayment('pay1', -280_000, '2026-02-01');
+    await splitMortgagePayment({
+      transactionId: 'pay1',
+      mortgageAccountId: 'mtg',
+    });
+    // …and an unrelated unsplit debit of plausible size sits nearby (an
+    // internal transfer / payment to someone else). It's further from the
+    // due date, so it must NOT be proposed as the payment.
+    await addPayment('twin', -280_000, '2026-01-25');
+
+    vi.mocked(extractStatement).mockResolvedValue({
+      interest: 200_000,
+      taxAndInsurance: 50_000,
+      principalBalance: 40_000_000,
+      statementDate: '2026-01-17',
+      dueDate: '2026-02-16',
+    });
+
+    const [p] = await parseStatements({
+      accountId: 'mtg',
+      statements: [{ fileName: 'jan.pdf', text: 'raw text' }],
+    });
+
+    expect(p.status).toBe('already-split');
+    expect(p.matchedTransactionId).toBe('pay1');
+  });
+
+  it('still matches a strictly closer unsplit payment over a distant split', async () => {
+    await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
+    await setEscrowPeriod({
+      accountId: 'mtg',
+      effectiveDate: '2026-01-01',
+      propertyTaxMonthly: 40_000,
+      homeInsuranceMonthly: 10_000,
+      pmiMonthly: 0,
+    });
+    // An old split payment lingers at the window's edge; the actual new
+    // payment posted unsplit right on the due date.
+    await addPayment('old', -280_000, '2026-02-10');
+    await splitMortgagePayment({
+      transactionId: 'old',
+      mortgageAccountId: 'mtg',
+    });
+    await addPayment('fresh', -280_000, '2026-02-01');
+
+    vi.mocked(extractStatement).mockResolvedValue({
+      interest: 200_000,
+      taxAndInsurance: 50_000,
+      principalBalance: 40_000_000,
+      statementDate: '2026-01-17',
+      dueDate: '2026-02-16',
+    });
+
+    const [p] = await parseStatements({
+      accountId: 'mtg',
+      statements: [{ fileName: 'jan.pdf', text: 'raw text' }],
+    });
+
+    expect(p.status).toBe('matched');
+    expect(p.matchedTransactionId).toBe('fresh');
+  });
+
   it('reports no-match when no payment fits the statement', async () => {
     await saveMortgageConfig({ accountId: 'mtg', annualInterestRate: 0.06 });
     vi.mocked(extractStatement).mockResolvedValue({

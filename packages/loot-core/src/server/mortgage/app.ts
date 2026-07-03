@@ -823,29 +823,43 @@ export async function parseStatements({
 
     const dueDate = deriveDueDate(ext);
     const minAmount = ext.interest + ext.taxAndInsurance;
-    const match = dueDate
+    const unsplitMatch = dueDate
       ? await findPaymentTransaction(accountId, minAmount, dueDate)
       : null;
+    const splitParent = dueDate
+      ? await findSplitPaymentParent(accountId, minAmount, dueDate)
+      : null;
 
+    // When the real payment was already split, a same-amount unsplit twin
+    // (an internal transfer, a payment to someone else) can sit in the same
+    // window and must not outrank it: the split parent wins ties and closer
+    // dates. Only a strictly closer unsplit debit is treated as the payment.
+    const daysFromDue = (dateInt: number): number => {
+      const due = parseYmd(dueDate ?? dateIntToYmd(dateInt)).getTime();
+      return Math.abs(parseYmd(dateIntToYmd(dateInt)).getTime() - due);
+    };
+    const preferSplit =
+      splitParent != null &&
+      (unsplitMatch == null ||
+        daysFromDue(splitParent.date) <= daysFromDue(unsplitMatch.date));
+
+    if (preferSplit) {
+      out.push({
+        ...blank,
+        status: 'already-split',
+        statementDate: ext.statementDate,
+        dueDate,
+        matchedTransactionId: splitParent.id,
+        matchedDate: dateIntToYmd(splitParent.date),
+        payment: Math.abs(splitParent.amount),
+        interest: ext.interest,
+        taxAndInsurance: ext.taxAndInsurance,
+      });
+      continue;
+    }
+
+    const match = unsplitMatch;
     if (!match) {
-      // Already split on an earlier pass? Offer to attach the PDF to it.
-      const splitParent = dueDate
-        ? await findSplitPaymentParent(accountId, minAmount, dueDate)
-        : null;
-      if (splitParent) {
-        out.push({
-          ...blank,
-          status: 'already-split',
-          statementDate: ext.statementDate,
-          dueDate,
-          matchedTransactionId: splitParent.id,
-          matchedDate: dateIntToYmd(splitParent.date),
-          payment: Math.abs(splitParent.amount),
-          interest: ext.interest,
-          taxAndInsurance: ext.taxAndInsurance,
-        });
-        continue;
-      }
       out.push({
         ...blank,
         status: 'no-match',
