@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
-import { Button } from '@actual-app/components/button';
+import { Button, ButtonWithLoading } from '@actual-app/components/button';
 import { Input } from '@actual-app/components/input';
 import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
@@ -198,6 +198,8 @@ export function EmailReceiptsReviewTable() {
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkingFor, setLinkingFor] = useState<string | null>(null);
+  const [isRebuilding, setIsRebuilding] = useState(false);
+  const [rebuildMsg, setRebuildMsg] = useState<string | null>(null);
 
   const reload = async () => {
     try {
@@ -231,6 +233,27 @@ export function EmailReceiptsReviewTable() {
       setError(err instanceof Error ? err.message : String(err));
     }
     setIsBusy(false);
+  };
+
+  // Re-render every applied receipt's PDF from the real email HTML (older
+  // ones are re-fetched from Gmail). One-shot backfill; also handy anytime.
+  const rebuildAttachments = async () => {
+    setIsRebuilding(true);
+    setError(null);
+    setRebuildMsg(null);
+    try {
+      const res = await send('email-receipts-rebuild-attachments');
+      setRebuildMsg(
+        t(
+          'Rebuilt {{rebuilt}} of {{total}} email PDFs ' +
+            '({{refetched}} re-fetched from Gmail, {{failed}} failed).',
+          res,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+    setIsRebuilding(false);
   };
 
   const pending = lists?.pending ?? [];
@@ -463,9 +486,32 @@ export function EmailReceiptsReviewTable() {
 
       {applied.length > 0 && (
         <View style={{ gap: 6 }}>
-          <Text style={{ fontWeight: 600, fontSize: 15 }}>
-            <Trans>Applied ({{ count: applied.length }})</Trans>
-          </Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <Text style={{ fontWeight: 600, fontSize: 15 }}>
+              <Trans>Applied ({{ count: applied.length }})</Trans>
+            </Text>
+            <ButtonWithLoading
+              isLoading={isRebuilding}
+              isDisabled={isBusy || isRebuilding}
+              onPress={() => {
+                void rebuildAttachments();
+              }}
+            >
+              <Trans>Rebuild email PDFs</Trans>
+            </ButtonWithLoading>
+          </View>
+          {rebuildMsg && (
+            <Text style={{ color: theme.pageTextSubdued, fontSize: 12 }}>
+              {rebuildMsg}
+            </Text>
+          )}
           <View
             style={{
               border: '1px solid ' + theme.tableBorder,

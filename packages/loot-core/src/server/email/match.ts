@@ -455,11 +455,12 @@ export async function applyProposal(
   await attachReceiptEmail(proposal.message_id, trans.id);
 }
 
-type EmailMessageRow = {
+export type EmailMessageRow = {
   subject: string | null;
   from_addr: string | null;
   email_date: string | null;
   body: string | null;
+  body_html: string | null;
 };
 
 function escapeHtml(s: string): string {
@@ -474,13 +475,14 @@ export function renderReceiptEmailHtml(
   msg: EmailMessageRow,
   messageId?: string,
 ): string {
-  const body = msg.body ?? '';
-  // The pipeline stores whichever of text/html or text/plain it decoded;
-  // wrap plain text so it stays readable in a browser.
-  const looksLikeHtml = /<\s*(html|body|div|table|p|br|span|td)\b/i.test(body);
-  const bodyHtml = looksLikeHtml
-    ? body
-    : `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(body)}</pre>`;
+  // Prefer the raw text/html the sync captured so the rendered PDF looks like
+  // the actual email (as if printed from Gmail). Fall back to the de-tagged
+  // plain text wrapped in <pre> for text-only messages or pre-body_html rows.
+  const rawHtml = (msg.body_html ?? '').trim();
+  const bodyHtml =
+    rawHtml.length > 0
+      ? rawHtml
+      : `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(msg.body ?? '')}</pre>`;
 
   const headerRows = [
     ['Subject', msg.subject],
@@ -526,7 +528,7 @@ async function attachReceiptEmail(
     const database = await getEmailDb();
     const msg = first<EmailMessageRow>(
       database,
-      `SELECT subject, from_addr, email_date, body
+      `SELECT subject, from_addr, email_date, body, body_html
          FROM email_messages WHERE message_id = ?`,
       [messageId],
     );

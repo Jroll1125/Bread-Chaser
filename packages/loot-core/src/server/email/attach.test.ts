@@ -191,25 +191,30 @@ describe('email receipt auto-attach', () => {
     expect(await attachmentsFor(txnId)).toHaveLength(0);
   });
 
-  it('renders plain-text bodies as readable HTML', () => {
+  it('renders plain-text bodies as readable HTML when no body_html', () => {
     const html = renderReceiptEmailHtml({
       subject: 'Receipt <test>',
       from_addr: 'a@b.com',
       email_date: '2026-06-10',
       body: 'Line 1\nTotal: $5 & tax',
+      body_html: null,
     });
     expect(html).toContain('Receipt &lt;test&gt;');
     expect(html).toContain('<pre');
     expect(html).toContain('Total: $5 &amp; tax');
   });
 
-  it('embeds HTML bodies as-is', () => {
+  it('embeds the real email HTML as-is, ignoring the plain body', () => {
     const html = renderReceiptEmailHtml({
       subject: 'Receipt',
       from_addr: 'a@b.com',
       email_date: '2026-06-10',
-      body: '<div><p>Total: $5</p></div>',
+      body: 'Total: $5',
+      body_html: '<div><p>Total: $5</p><img src="https://x/logo.png"></div>',
     });
-    expect(html).toContain('<div><p>Total: $5</p></div>');
+    // The real message markup renders verbatim (so the PDF looks like the
+    // email); the de-tagged plain text is not <pre>-wrapped in this case.
+    expect(html).toContain('<div><p>Total: $5</p><img src="https://x/logo.png"></div>');
+    expect(html).not.toContain('<pre');
   });
 });

@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS email_messages (
   email_date TEXT,
   classified TEXT NOT NULL,
   body TEXT,
+  -- The raw text/html part of the email, kept verbatim so the attached PDF
+  -- can be rendered to look like the real message (not the de-tagged plain
+  -- text in the body column, which stays as the LLM extraction input).
+  body_html TEXT,
   -- Set when the user dismisses an unmatched receipt from the review queue.
   -- Only hides it from the queue; the matcher keeps checking it, so it
   -- re-surfaces if a bank transaction posts later and becomes a candidate.
@@ -87,6 +91,7 @@ export async function getEmailDb(): Promise<SidecarDb> {
 function migrate(database: SidecarDb): void {
   const adds = [
     'ALTER TABLE email_messages ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE email_messages ADD COLUMN body_html TEXT',
   ];
   for (const sql of adds) {
     try {

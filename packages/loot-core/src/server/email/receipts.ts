@@ -2,9 +2,14 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { fetch } from '#platform/server/fetch';
 import * as lootFs from '#platform/server/fs';
+import { renderHtmlToPdf } from '#platform/server/html-to-pdf';
 import { logger } from '#platform/server/log';
 import * as oauthLoopback from '#platform/server/oauth-loopback';
 import * as secureStore from '#platform/server/secure-store';
+import {
+  addAttachmentBuffer,
+  deleteAttachmentsForSource,
+} from '#server/attachments/app';
 import { aqlQuery } from '#server/aql';
 import { q } from '#shared/query';
 import type {
@@ -27,9 +32,11 @@ import {
 } from './extract';
 import {
   applyProposal,
+  type EmailMessageRow,
   findCandidates,
   recordProposal,
   rejectProposal,
+  renderReceiptEmailHtml,
   toEmailMatchProposal,
   unapplyProposal,
 } from './match';
@@ -491,6 +498,104 @@ export function decodeMessageBody(message: GmailMessage): string {
   return '';
 }
 
+/**
+ * The RAW text/html part, kept verbatim (unlike decodeMessageBody, which
+ * strips tags for the LLM). Used to render the attached PDF so it looks like
+ * the real email. Null when the message is plain-text only.
+ */
+export function decodeMessageHtml(message: GmailMessage): string | null {
+  const html = findPart(message.payload, 'text/html');
+  return html ? html.slice(0, HTML_CAP) : null;
+}
+
+/**
+ * Re-render the attached PDF for every already-applied receipt from the real
+ * email HTML, replacing the old plain-text-blob attachment so it reads like
+ * the actual message. Receipts synced before body_html existed are re-fetched
+ * from Gmail once to recover their HTML (needs a live connection); ones synced
+ * after just re-render offline. Safe to re-run: an attachment is only replaced
+ * once its new PDF has rendered, so a failure never drops the existing file.
+ */
+export async function rebuildEmailAttachments(): Promise<{
+  total: number;
+  rebuilt: number;
+  refetched: number;
+  failed: number;
+}> {
+  const database = await getEmailDb();
+  const rows = all<{ message_id: string; transaction_id: string }>(
+    database,
+    `SELECT message_id, transaction_id FROM match_proposals
+      WHERE status IN ('applied', 'auto_applied')`,
+  );
+
+  let rebuilt = 0;
+  let refetched = 0;
+  let failed = 0;
+
+  for (const { message_id, transaction_id } of rows) {
+    try {
+      let msg = first<EmailMessageRow>(
+        database,
+        `SELECT subject, from_addr, email_date, body, body_html
+           FROM email_messages WHERE message_id = ?`,
+        [message_id],
+      );
+      if (!msg) {
+        failed++;
+        continue;
+      }
+
+      // Receipts synced before body_html existed: recover the real HTML from
+      // Gmail once and persist it back into the sidecar.
+      if (!msg.body_html || !msg.body_html.trim()) {
+        const message = (await gmailFetch(
+          `/messages/${message_id}?format=full`,
+        )) as GmailMessage;
+        const html = decodeMessageHtml(message);
+        run(
+          database,
+          'UPDATE email_messages SET body_html = ? WHERE message_id = ?',
+          [html, message_id],
+        );
+        msg = { ...msg, body_html: html };
+        refetched++;
+      }
+
+      const pdf = await renderHtmlToPdf(renderReceiptEmailHtml(msg, message_id));
+      if (!pdf) {
+        // No PDF render bridge (non-desktop) — leave the existing attachment.
+        failed++;
+        continue;
+      }
+
+      const datePart = (msg.email_date ?? '').slice(0, 10);
+      await deleteAttachmentsForSource(transaction_id, message_id);
+      await addAttachmentBuffer({
+        transactionId: transaction_id,
+        data: pdf,
+        fileName: `receipt-email${datePart ? '-' + datePart : ''}.pdf`,
+        contentType: 'application/pdf',
+        source: 'email',
+        sourceKey: message_id,
+      });
+      rebuilt++;
+    } catch (err) {
+      logger.warn(
+        `[email-receipts] could not rebuild attachment for ${message_id}`,
+        err,
+      );
+      failed++;
+    }
+  }
+
+  logger.log(
+    `[email-receipts] rebuilt ${rebuilt}/${rows.length} email attachments ` +
+      `(${refetched} re-fetched from Gmail, ${failed} failed)`,
+  );
+  return { total: rows.length, rebuilt, refetched, failed };
+}
+
 function getHeader(message: GmailMessage, name: string): string {
   return (
     message.payload?.headers?.find(
@@ -508,6 +613,10 @@ function headerDateToDay(value: string): string | null {
 }
 
 const BODY_CAP = 64_000;
+// Raw HTML for the attached PDF. Generous vs BODY_CAP (the LLM input) since
+// receipt emails carry markup/inline styles; still bounded so a pathological
+// message can't bloat the sidecar or overflow the render bridge's data: URL.
+const HTML_CAP = 2_000_000;
 
 export function buildGmailQuery(
   historyDays: number,
@@ -629,11 +738,14 @@ export async function syncEmailReceipts(): Promise<EmailReceiptsSyncResult> {
       classified === 'receipt'
         ? decodeMessageBody(message).slice(0, BODY_CAP)
         : null;
+    const bodyHtml =
+      classified === 'receipt' ? decodeMessageHtml(message) : null;
     run(
       database,
       `INSERT INTO email_messages
-         (message_id, thread_id, from_addr, subject, email_date, classified, body)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (message_id, thread_id, from_addr, subject, email_date, classified,
+          body, body_html)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         message.threadId ?? null,
@@ -642,6 +754,7 @@ export async function syncEmailReceipts(): Promise<EmailReceiptsSyncResult> {
         emailDate,
         classified,
         body,
+        bodyHtml,
       ],
     );
     if (classified !== 'receipt') {

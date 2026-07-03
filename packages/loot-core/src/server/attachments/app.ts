@@ -382,6 +382,28 @@ async function deleteAttachment({ id }: { id: string }): Promise<void> {
   }
 }
 
+/**
+ * Remove any (non-tombstoned) attachments on a transaction that came from a
+ * given source key. Used to REPLACE an attachment (e.g. re-rendering a
+ * receipt-email PDF from the real HTML) — addAttachmentBuffer would otherwise
+ * dedupe on the same source_key and keep the stale one. Returns the count
+ * removed.
+ */
+export async function deleteAttachmentsForSource(
+  transactionId: string,
+  sourceKey: string,
+): Promise<number> {
+  const rows = await db.all<{ id: string }>(
+    `SELECT id FROM transaction_attachments
+      WHERE transaction_id = ? AND source_key = ? AND tombstone = 0`,
+    [transactionId, sourceKey],
+  );
+  for (const row of rows) {
+    await deleteAttachment({ id: row.id });
+  }
+  return rows.length;
+}
+
 async function attachmentsForAccount({
   accountId,
 }: {

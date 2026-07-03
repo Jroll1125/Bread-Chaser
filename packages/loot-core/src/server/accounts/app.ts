@@ -79,6 +79,7 @@ export type AccountHandlers = {
   'email-receipts-link-manual': typeof emailReceiptsLinkManual;
   'email-receipts-reject': typeof emailReceiptsReject;
   'email-receipts-unapply': typeof emailReceiptsUnapply;
+  'email-receipts-rebuild-attachments': typeof emailReceiptsRebuildAttachments;
   'email-receipts-disconnect': typeof emailReceiptsDisconnect;
   'pluggyai-accounts-link': typeof linkPluggyAiAccount;
   'akahu-accounts-link': typeof linkAkahuAccount;
@@ -561,6 +562,15 @@ async function emailReceiptsUnapply(args: { proposalId: number }) {
     tables: ['transactions'],
   });
   return 'ok' as const;
+}
+
+async function emailReceiptsRebuildAttachments() {
+  const result = await emailReceipts.rebuildEmailAttachments();
+  connection.send('sync-event', {
+    type: 'success',
+    tables: ['transaction_attachments', 'transactions'],
+  });
+  return result;
 }
 
 async function emailReceiptsDisconnect() {
@@ -2019,6 +2029,10 @@ app.method(
 );
 app.method('email-receipts-reject', emailReceiptsReject);
 app.method('email-receipts-unapply', mutator(undoable(emailReceiptsUnapply)));
+app.method(
+  'email-receipts-rebuild-attachments',
+  mutator(emailReceiptsRebuildAttachments),
+);
 app.method('email-receipts-disconnect', emailReceiptsDisconnect);
 app.method('pluggyai-accounts-link', linkPluggyAiAccount);
 app.method('akahu-accounts-link', linkAkahuAccount);
