@@ -53,12 +53,18 @@ export function MortgageEscrowModal({ accountId }: MortgageEscrowModalProps) {
   const [insurance, setInsurance] = useState('');
   const [pmi, setPmi] = useState('');
   const [annualInsurance, setAnnualInsurance] = useState('');
+  const [balance, setBalance] = useState('');
+  const [balanceAsOf, setBalanceAsOf] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const cfg = await send('mortgage-get-config', { accountId });
     setPeriods(cfg?.escrowPeriods ?? []);
+    setBalance(
+      cfg?.escrowBalance != null ? (cfg.escrowBalance / 100).toString() : '',
+    );
+    setBalanceAsOf(cfg?.escrowBalanceAsOf ?? '');
   }, [accountId]);
 
   useEffect(() => {
@@ -96,6 +102,22 @@ export function MortgageEscrowModal({ accountId }: MortgageEscrowModalProps) {
     await reload();
   };
 
+  const onSaveBalance = async () => {
+    setIsSaving(true);
+    setError(null);
+    try {
+      await send('mortgage-set-escrow-balance', {
+        accountId,
+        balance: balance.trim() ? toCents(balance) : null,
+        asOf: balanceAsOf || null,
+      });
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+    setIsSaving(false);
+  };
+
   const dateInputStyle = {
     height: 36,
     padding: '0 10px',
@@ -122,6 +144,62 @@ export function MortgageEscrowModal({ accountId }: MortgageEscrowModalProps) {
                 force on the payment’s date.
               </Trans>
             </Text>
+
+            {/* Current escrow balance — user-entered off the statement, and
+                fully adjustable if the number drifts. */}
+            <View
+              style={{
+                gap: 8,
+                padding: '8px 10px',
+                border: '1px solid ' + theme.tableBorder,
+                borderRadius: 6,
+              }}
+            >
+              <Text style={{ fontWeight: 500 }}>
+                <Trans>Current escrow balance</Trans>
+              </Text>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                  alignItems: 'flex-end',
+                }}
+              >
+                <View style={{ flex: '1 1 120px' }}>
+                  <FormField>
+                    <FormLabel title={t('Balance ($):')} htmlFor="esc-balance" />
+                    <Input
+                      id="esc-balance"
+                      value={balance}
+                      placeholder="0.00"
+                      onChangeValue={setBalance}
+                    />
+                  </FormField>
+                </View>
+                <View style={{ flex: '1 1 120px' }}>
+                  <FormField>
+                    <FormLabel title={t('As of:')} htmlFor="esc-balance-date" />
+                    <input
+                      id="esc-balance-date"
+                      type="date"
+                      value={balanceAsOf}
+                      onChange={e => setBalanceAsOf(e.target.value)}
+                      style={dateInputStyle}
+                    />
+                  </FormField>
+                </View>
+                <ButtonWithLoading
+                  variant="primary"
+                  isLoading={isSaving}
+                  onPress={() => {
+                    void onSaveBalance();
+                  }}
+                >
+                  <Trans>Save balance</Trans>
+                </ButtonWithLoading>
+              </View>
+            </View>
 
             {periods.length > 0 && (
               <View style={{ gap: 4 }}>

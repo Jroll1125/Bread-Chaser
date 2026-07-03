@@ -49,6 +49,8 @@ type MortgageConfigRow = {
   property_tax_category: string | null;
   home_insurance_category: string | null;
   pmi_category: string | null;
+  escrow_balance: number | null;
+  escrow_balance_as_of: string | null;
   tombstone: number;
 };
 
@@ -77,6 +79,8 @@ export type MortgageConfig = {
   startDate: string | null;
   termMonths: number | null;
   piPayment: number | null;
+  escrowBalance: number | null;
+  escrowBalanceAsOf: string | null;
   escrowPeriods: MortgageEscrowPeriod[];
 };
 
@@ -122,6 +126,7 @@ export type MortgageHandlers = {
   'mortgage-get-config': typeof getMortgageConfig;
   'mortgage-save-config': typeof saveMortgageConfig;
   'mortgage-set-escrow': typeof setEscrowPeriod;
+  'mortgage-set-escrow-balance': typeof setEscrowBalance;
   'mortgage-delete-escrow': typeof deleteEscrowPeriod;
   'mortgage-get-summary': typeof getMortgageSummary;
   'mortgage-preview-split': typeof previewMortgageSplit;
@@ -134,6 +139,7 @@ export const app = createApp<MortgageHandlers>();
 app.method('mortgage-get-config', getMortgageConfig);
 app.method('mortgage-save-config', mutator(saveMortgageConfig));
 app.method('mortgage-set-escrow', mutator(setEscrowPeriod));
+app.method('mortgage-set-escrow-balance', mutator(setEscrowBalance));
 app.method('mortgage-delete-escrow', mutator(deleteEscrowPeriod));
 app.method('mortgage-get-summary', getMortgageSummary);
 app.method('mortgage-preview-split', previewMortgageSplit);
@@ -184,6 +190,8 @@ export async function getMortgageConfig({
     startDate: row.start_date ?? null,
     termMonths: row.term_months ?? null,
     piPayment: row.pi_payment ?? null,
+    escrowBalance: row.escrow_balance ?? null,
+    escrowBalanceAsOf: row.escrow_balance_as_of ?? null,
     escrowPeriods: await getEscrowPeriods(accountId),
   };
 }
@@ -324,6 +332,32 @@ export async function setEscrowPeriod({
 
 export async function deleteEscrowPeriod({ id }: { id: string }): Promise<'ok'> {
   await db.delete_('mortgage_escrow_periods', id);
+  return 'ok';
+}
+
+// The servicer-held escrow balance isn't derivable from the ledger, so it's
+// user-entered (off the statement) and fully adjustable. `balance` is cents;
+// `asOf` is a yyyy-mm-dd date. Either may be null to clear it.
+export async function setEscrowBalance({
+  accountId,
+  balance,
+  asOf,
+}: {
+  accountId: string;
+  balance: number | null;
+  asOf: string | null;
+}): Promise<'ok'> {
+  const existing = await getConfigRow(accountId);
+  if (!existing) {
+    throw new Error(
+      'Set up mortgage tracking before recording an escrow balance.',
+    );
+  }
+  await db.update('mortgage_configs', {
+    id: existing.id,
+    escrow_balance: balance != null ? Math.round(balance) : null,
+    escrow_balance_as_of: asOf ?? null,
+  });
   return 'ok';
 }
 

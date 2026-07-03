@@ -44,6 +44,8 @@ type Config = {
   startDate: string | null;
   termMonths: number | null;
   piPayment: number | null;
+  escrowBalance: number | null;
+  escrowBalanceAsOf: string | null;
   escrowPeriods: EscrowPeriod[];
 };
 
@@ -444,13 +446,24 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
             </Button>
           </View>
           <Row
-            label={t('Current')}
+            label={t('Monthly')}
             value={
               currentEscrowTotal > 0
                 ? `${moneyCents(currentEscrowTotal)}/mo`
                 : t('none set')
             }
           />
+          {config.escrowBalance != null && (
+            <Row
+              label={t('Balance')}
+              value={
+                moneyCents(config.escrowBalance) +
+                (config.escrowBalanceAsOf
+                  ? ` · ${fmtDate(config.escrowBalanceAsOf)}`
+                  : '')
+              }
+            />
+          )}
           {latestPeriod && (
             <Row
               label={t('In effect since')}

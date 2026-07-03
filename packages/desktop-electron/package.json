@@ -1,6 +1,6 @@
 {
   "name": "desktop-electron",
-  "version": "27.0.9",
+  "version": "27.0.10",
   "description": "Bread Chaser — a personal finance app by Ben Yoder",
   "author": "Ben Yoder",
   "main": "build/desktop-electron/index.js",
