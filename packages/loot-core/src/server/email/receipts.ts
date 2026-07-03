@@ -1077,9 +1077,11 @@ export async function getReviewItems(): Promise<{
 export async function applyMatch({
   proposalId,
   payeeName,
+  categoryId,
 }: {
   proposalId: number;
   payeeName?: string;
+  categoryId?: string;
 }): Promise<void> {
   const database = await getEmailDb();
   const proposal = first<{ message_id: string }>(
@@ -1099,7 +1101,28 @@ export async function applyMatch({
   if (!receipt) {
     throw new Error('The extraction for this match is no longer readable');
   }
-  await applyProposal(proposalId, receipt, { payeeName });
+  await applyProposal(proposalId, receipt, { payeeName, categoryId });
+}
+
+/**
+ * Render the stored receipt email to HTML for an in-app preview (the same
+ * markup that becomes the attached PDF), so the user can eyeball a receipt in
+ * the review queue before applying it.
+ */
+export async function previewReceiptEmail(
+  messageId: string,
+): Promise<{ html: string }> {
+  const database = await getEmailDb();
+  const msg = first<EmailMessageRow>(
+    database,
+    `SELECT subject, from_addr, email_date, body, body_html
+       FROM email_messages WHERE message_id = ?`,
+    [messageId],
+  );
+  if (!msg) {
+    throw new Error('This receipt email is no longer available');
+  }
+  return { html: renderReceiptEmailHtml(msg, messageId) };
 }
 
 /**
@@ -1113,17 +1136,19 @@ export async function linkManualMatch({
   messageId,
   transactionId,
   payeeName,
+  categoryId,
 }: {
   messageId: string;
   transactionId: string;
   payeeName?: string;
+  categoryId?: string;
 }): Promise<void> {
   const proposalId = await recordProposal(
     messageId,
     { id: transactionId, merchantScore: 1, dateGapDays: 0, score: 1 },
     'review',
   );
-  await applyMatch({ proposalId, payeeName });
+  await applyMatch({ proposalId, payeeName, categoryId });
 }
 
 export async function rejectMatch({

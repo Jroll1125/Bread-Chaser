@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { Button, ButtonWithLoading } from '@actual-app/components/button';
@@ -16,6 +17,7 @@ import type {
 } from '@actual-app/core/types/models';
 
 import { Error as ErrorAlert } from '#components/alerts';
+import { useCategories } from '#hooks/useCategories';
 import { usePayees } from '#hooks/usePayees';
 import { aqlQuery } from '#queries/aqlQuery';
 
@@ -205,7 +207,19 @@ export function EmailReceiptsReviewTable() {
   const [payeeOverrides, setPayeeOverrides] = useState<Record<string, string>>(
     {},
   );
+  // Per-receipt category override (category id), applied to the transaction /
+  // split children on Apply. Empty string = leave uncategorized.
+  const [categoryOverrides, setCategoryOverrides] = useState<
+    Record<string, string>
+  >({});
+  // In-app receipt preview overlay: null when closed.
+  const [preview, setPreview] = useState<{
+    loading: boolean;
+    html: string;
+  } | null>(null);
   const { data: payees = [] } = usePayees();
+  const { data: categoryData } = useCategories();
+  const categoryGroups = categoryData?.grouped ?? [];
 
   const reload = async () => {
     try {
@@ -262,11 +276,24 @@ export function EmailReceiptsReviewTable() {
     setIsRebuilding(false);
   };
 
+  const openPreview = async (messageId: string) => {
+    setPreview({ loading: true, html: '' });
+    try {
+      const res = await send('email-receipts-preview', { messageId });
+      setPreview({ loading: false, html: res.html });
+    } catch (err) {
+      setPreview(null);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const pending = lists?.pending ?? [];
   const applied = lists?.applied ?? [];
   const unmatched = pending.filter(item => !bestProposal(item));
   const payeeFor = (item: EmailReviewItem) =>
     payeeOverrides[item.messageId] ?? item.receipt.merchant;
+  const categoryFor = (item: EmailReviewItem) =>
+    categoryOverrides[item.messageId] ?? '';
 
   return (
     <View style={{ gap: 18 }}>
@@ -280,6 +307,73 @@ export function EmailReceiptsReviewTable() {
             <option key={p.id} value={p.name} />
           ))}
       </datalist>
+
+      {preview &&
+        createPortal(
+          <div
+            onClick={() => setPreview(null)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              zIndex: 5000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 24,
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                backgroundColor: theme.pageBackground,
+                borderRadius: 8,
+                width: 'min(900px, 100%)',
+                height: '90vh',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                boxShadow: '0 10px 40px rgba(0,0,0,0.35)',
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  borderBottom: '1px solid ' + theme.tableBorder,
+                  flexShrink: 0,
+                }}
+              >
+                <Text style={{ fontWeight: 600 }}>
+                  <Trans>Receipt preview</Trans>
+                </Text>
+                <Button variant="bare" onPress={() => setPreview(null)}>
+                  {t('Close')}
+                </Button>
+              </View>
+              {preview.loading ? (
+                <Text style={{ padding: 20, color: theme.pageTextSubdued }}>
+                  <Trans>Loading…</Trans>
+                </Text>
+              ) : (
+                <iframe
+                  title={t('Receipt preview')}
+                  srcDoc={preview.html}
+                  sandbox=""
+                  style={{
+                    flex: 1,
+                    width: '100%',
+                    border: 0,
+                    backgroundColor: 'white',
+                  }}
+                />
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
 
       <View style={{ gap: 6 }}>
         <View
@@ -370,65 +464,90 @@ export function EmailReceiptsReviewTable() {
                         }}
                       >
                         <td style={cell}>
-                          <div
+                          {/* The bold merchant line IS the editable payee box
+                              (defaults to the extracted merchant). */}
+                          <input
+                            list="bc-email-payee-options"
+                            value={payeeFor(item)}
+                            disabled={isBusy}
+                            placeholder={item.receipt.merchant}
+                            aria-label={t('Payee')}
+                            onChange={e =>
+                              setPayeeOverrides(prev => ({
+                                ...prev,
+                                [item.messageId]: e.target.value,
+                              }))
+                            }
                             style={{
+                              width: '100%',
                               fontWeight: 600,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
+                              fontSize: 13,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              border: '1px solid ' + theme.tableBorder,
+                              backgroundColor: theme.tableBackground,
+                              color: theme.pageText,
                             }}
-                          >
-                            {item.receipt.merchant}
-                          </div>
-                          <div
+                          />
+                          {/* Subject doubles as the preview trigger. */}
+                          <button
+                            type="button"
+                            onClick={() => void openPreview(item.messageId)}
+                            title={t('Preview the receipt email')}
                             style={{
-                              color: theme.pageTextSubdued,
-                              fontSize: 12,
+                              display: 'block',
+                              marginTop: 3,
+                              maxWidth: '100%',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              background: 'none',
+                              border: 0,
+                              padding: 0,
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                              fontSize: 12,
+                              color: theme.pageTextLink,
+                              textDecoration: 'underline',
                             }}
                           >
                             {item.subject ?? item.from ?? item.messageId}
-                          </div>
-                          <div
+                          </button>
+                          <select
+                            value={categoryFor(item)}
+                            disabled={isBusy}
+                            onChange={e =>
+                              setCategoryOverrides(prev => ({
+                                ...prev,
+                                [item.messageId]: e.target.value,
+                              }))
+                            }
                             style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 6,
+                              width: '100%',
                               marginTop: 5,
+                              fontSize: 12,
+                              padding: '2px 4px',
+                              borderRadius: 4,
+                              border: '1px solid ' + theme.tableBorder,
+                              backgroundColor: theme.tableBackground,
+                              color: theme.pageText,
                             }}
                           >
-                            <span
-                              style={{
-                                fontSize: 11,
-                                color: theme.pageTextSubdued,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {t('Payee')}
-                            </span>
-                            <input
-                              list="bc-email-payee-options"
-                              value={payeeFor(item)}
-                              disabled={isBusy}
-                              placeholder={item.receipt.merchant}
-                              onChange={e =>
-                                setPayeeOverrides(prev => ({
-                                  ...prev,
-                                  [item.messageId]: e.target.value,
-                                }))
-                              }
-                              style={{
-                                flex: 1,
-                                minWidth: 0,
-                                fontSize: 12,
-                                padding: '2px 6px',
-                                borderRadius: 4,
-                                border: '1px solid ' + theme.tableBorder,
-                                backgroundColor: theme.tableBackground,
-                                color: theme.pageText,
-                              }}
-                            />
-                          </div>
+                            <option value="">{t('Uncategorized')}</option>
+                            {categoryGroups
+                              .filter(group => !group.hidden)
+                              .map(group => (
+                                <optgroup key={group.id} label={group.name}>
+                                  {(group.categories ?? [])
+                                    .filter(c => !c.hidden)
+                                    .map(c => (
+                                      <option key={c.id} value={c.id}>
+                                        {c.name}
+                                      </option>
+                                    ))}
+                                </optgroup>
+                              ))}
+                          </select>
                         </td>
                         <td
                           style={{
@@ -471,6 +590,7 @@ export function EmailReceiptsReviewTable() {
                                       send('email-receipts-apply', {
                                         proposalId: best.id,
                                         payeeName: payeeFor(item),
+                                        categoryId: categoryFor(item) || undefined,
                                       }),
                                     )
                                   }
@@ -527,6 +647,7 @@ export function EmailReceiptsReviewTable() {
                                     messageId: item.messageId,
                                     transactionId,
                                     payeeName: payeeFor(item),
+                                    categoryId: categoryFor(item) || undefined,
                                   }),
                                 )
                               }

@@ -322,7 +322,11 @@ function asUpdates(updates: TransactionUpdate[]): Partial<TransactionEntity>[] {
 export async function applyProposal(
   proposalId: number,
   receipt: ReceiptExtraction,
-  { auto = false, payeeName }: { auto?: boolean; payeeName?: string } = {},
+  {
+    auto = false,
+    payeeName,
+    categoryId,
+  }: { auto?: boolean; payeeName?: string; categoryId?: string } = {},
 ): Promise<void> {
   const database = await getEmailDb();
   const proposal = first<ProposalRow>(
@@ -392,7 +396,7 @@ export async function applyProposal(
       makeChild(parent, {
         amount: sign * Math.abs(item.amount_cents),
         notes: item.description,
-        category: null,
+        category: categoryId ?? null,
         sort_order: 0 - idx,
       }),
     );
@@ -401,7 +405,7 @@ export async function applyProposal(
         makeChild(parent, {
           amount: remainder,
           notes: 'Tax & fees',
-          category: null,
+          category: categoryId ?? null,
           sort_order: 0 - children.length,
         }),
       );
@@ -432,6 +436,7 @@ export async function applyProposal(
     const update: TransactionUpdate = {
       id: trans.id,
       ...(payeeId ? { payee: payeeId } : {}),
+      ...(categoryId ? { category: categoryId } : {}),
       notes: appendNote(trans.notes ?? null, note),
     };
     await batchUpdateTransactions({ updated: asUpdates([update]) });

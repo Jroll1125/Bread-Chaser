@@ -75,6 +75,7 @@ export type AccountHandlers = {
   'email-receipts-poll-connect': typeof emailReceiptsPollConnect;
   'email-receipts-sync': typeof emailReceiptsSync;
   'email-receipts-proposals': typeof emailReceiptsProposals;
+  'email-receipts-preview': typeof emailReceiptsPreview;
   'email-receipts-apply': typeof emailReceiptsApply;
   'email-receipts-link-manual': typeof emailReceiptsLinkManual;
   'email-receipts-reject': typeof emailReceiptsReject;
@@ -526,9 +527,14 @@ async function emailReceiptsProposals() {
   return emailReceipts.getReviewItems();
 }
 
+async function emailReceiptsPreview(args: { messageId: string }) {
+  return emailReceipts.previewReceiptEmail(args.messageId);
+}
+
 async function emailReceiptsApply(args: {
   proposalId: number;
   payeeName?: string;
+  categoryId?: string;
 }) {
   await emailReceipts.applyMatch(args);
   connection.send('sync-event', {
@@ -542,6 +548,7 @@ async function emailReceiptsLinkManual(args: {
   messageId: string;
   transactionId: string;
   payeeName?: string;
+  categoryId?: string;
 }) {
   await emailReceipts.linkManualMatch(args);
   connection.send('sync-event', {
@@ -2026,6 +2033,7 @@ app.method('email-receipts-connect', emailReceiptsConnect);
 app.method('email-receipts-poll-connect', emailReceiptsPollConnect);
 app.method('email-receipts-sync', mutator(undoable(emailReceiptsSync)));
 app.method('email-receipts-proposals', emailReceiptsProposals);
+app.method('email-receipts-preview', emailReceiptsPreview);
 app.method('email-receipts-apply', mutator(undoable(emailReceiptsApply)));
 app.method(
   'email-receipts-link-manual',
