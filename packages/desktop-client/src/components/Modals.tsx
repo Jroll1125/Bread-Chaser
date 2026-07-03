@@ -14,6 +14,7 @@ import { useDispatch } from '#redux';
 import { EditSyncAccount } from './banksync/EditSyncAccount';
 import { AccountAutocompleteModal } from './modals/AccountAutocompleteModal';
 import { AccountMenuModal } from './modals/AccountMenuModal';
+import { AccountTypeModal } from './modals/AccountTypeModal';
 import { AkahuInitialiseModal } from './modals/AkahuInitialiseModal';
 import { BudgetAutomationsModal } from './modals/BudgetAutomationsModal';
 import { BudgetPageMenuModal } from './modals/BudgetPageMenuModal';
@@ -300,6 +301,9 @@ export function Modals() {
 
         case 'account-menu':
           return <AccountMenuModal key={key} {...modal.options} />;
+
+        case 'account-type':
+          return <AccountTypeModal key={key} {...modal.options} />;
 
         case 'category-menu':
           return <CategoryMenuModal key={key} {...modal.options} />;

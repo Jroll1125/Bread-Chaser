@@ -115,12 +115,14 @@ async function updateAccount({
   id,
   name,
   last_reconciled,
-}: Pick<AccountEntity, 'id' | 'name'> &
-  Partial<Pick<AccountEntity, 'last_reconciled'>>) {
+  type,
+}: Pick<AccountEntity, 'id'> &
+  Partial<Pick<AccountEntity, 'name' | 'last_reconciled' | 'type'>>) {
   await db.update('accounts', {
     id,
-    name,
+    ...(name != null && { name }),
     ...(last_reconciled && { last_reconciled }),
+    ...(type !== undefined && { type }),
   });
   return {};
 }
@@ -137,6 +139,7 @@ async function getAccounts(): Promise<AccountEntity[]> {
         sort_order: dbAccount.sort_order,
         last_reconciled: dbAccount.last_reconciled ?? null,
         tombstone: dbAccount.tombstone,
+        type: (dbAccount.type ?? null) as AccountEntity['type'],
         account_id: dbAccount.account_id ?? null,
         bank: dbAccount.bank ?? null,
         bankName: dbAccount.bankName ?? null,
@@ -380,6 +383,8 @@ async function linkPlaidItem(item: PlaidItem) {
       official_name: account.official_name,
       bank: bank.id,
       offbudget: plaid.isOffBudgetPlaidType(account.type) ? 1 : 0,
+      type: plaid.plaidTypeToAccountType(account.type, account.subtype),
+      subtype: account.subtype,
       account_sync_source: 'plaid',
     });
     await db.insertPayee({

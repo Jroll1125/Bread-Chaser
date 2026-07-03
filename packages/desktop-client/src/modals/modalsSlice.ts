@@ -154,6 +154,12 @@ export type Modal =
       };
     }
   | {
+      name: 'account-type';
+      options: {
+        accountId: AccountEntity['id'];
+      };
+    }
+  | {
       name: 'simplefin-init';
       options: {
         onSuccess: () => void;

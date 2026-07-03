@@ -4,6 +4,7 @@ import { logger } from '#platform/server/log';
 import * as secureStore from '#platform/server/secure-store';
 import { BankSyncError } from '#server/errors';
 import type {
+  AccountType,
   PlaidAccount,
   PlaidEnv,
   PlaidHostedLink,
@@ -23,6 +24,31 @@ const OFFBUDGET_TYPES = new Set(['investment', 'loan', 'brokerage']);
 
 export function isOffBudgetPlaidType(type: string): boolean {
   return OFFBUDGET_TYPES.has(type);
+}
+
+// Map Plaid's type + subtype onto our user-facing account types so a freshly
+// linked account arrives pre-classified. The user can still change it. Plaid
+// subtypes: depository→checking/savings, credit→credit card, loan→mortgage/…,
+// investment/brokerage→investment.
+export function plaidTypeToAccountType(
+  type: string,
+  subtype: string | null,
+): AccountType | null {
+  const t = (type ?? '').toLowerCase();
+  const s = (subtype ?? '').toLowerCase();
+  if (t === 'depository') {
+    return s === 'savings' ? 'savings' : 'checking';
+  }
+  if (t === 'credit') {
+    return 'credit-card';
+  }
+  if (t === 'loan') {
+    return s === 'mortgage' ? 'mortgage' : 'loan';
+  }
+  if (t === 'investment' || t === 'brokerage') {
+    return 'investment';
+  }
+  return null;
 }
 
 const CONFIG_FILE = 'plaid.json';

@@ -799,6 +799,7 @@ class AccountInternal extends PureComponent<
   onMenuSelect = async (
     item:
       | 'link'
+      | 'account-type'
       | 'unlink'
       | 'close'
       | 'reopen'
@@ -823,6 +824,16 @@ class AccountInternal extends PureComponent<
               options: {
                 upgradingAccountId: accountId,
               },
+            },
+          }),
+        );
+        break;
+      case 'account-type':
+        this.props.dispatch(
+          pushModal({
+            modal: {
+              name: 'account-type',
+              options: { accountId },
             },
           }),
         );

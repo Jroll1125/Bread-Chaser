@@ -735,6 +735,7 @@ type AccountMenuProps = {
   onMenuSelect: (
     item:
       | 'link'
+      | 'account-type'
       | 'unlink'
       | 'close'
       | 'reopen'
@@ -805,6 +806,9 @@ function AccountMenu({
             : t('Show reconciled transactions'),
         },
         { name: 'export', text: t('Export') },
+        ...(account && !account.closed
+          ? [{ name: 'account-type', text: t('Account type…') } as const]
+          : []),
         ...(account && !account.closed
           ? canSync
             ? [
