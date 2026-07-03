@@ -71,8 +71,21 @@ completes.
 
 ## Gotchas
 
+- **Shallow clone breaks the first push.** This checkout was created
+  shallow; a `git push` of a branch whose ancestry the remote can't
+  reconstruct fails with `remote unpack failed: index-pack failed` /
+  `did not receive expected object`. Fix once with
+  `git fetch origin --unshallow` (pulls Actual's full upstream history,
+  several minutes / a few hundred MB) BEFORE the first push, then push
+  normally. Verify with `git rev-parse --is-shallow-repository` → `false`.
+  Also set `git config http.postBuffer 524288000` for the large initial
+  upload. (One old upstream commit carries a >50MB webpack cache file —
+  GitHub warns but accepts it.)
 - `latest.yml` is what electron-updater actually reads; forgetting it (or
   the blockmap) makes updates silently never appear.
+- `isLatest` is not a valid `gh release view --json` field; check the
+  latest release with `gh api repos/OWNER/REPO/releases/latest --jq
+  '.tag_name'` instead.
 - A release must be NEWER (semver) than the installed version to be
   offered.
 - If the exe was rebuilt after the release was created, delete and
