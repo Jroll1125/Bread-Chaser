@@ -49,6 +49,7 @@ export function MortgageEscrowModal({ accountId }: MortgageEscrowModalProps) {
   const [tax, setTax] = useState('');
   const [insurance, setInsurance] = useState('');
   const [pmi, setPmi] = useState('');
+  const [annualInsurance, setAnnualInsurance] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +80,7 @@ export function MortgageEscrowModal({ accountId }: MortgageEscrowModalProps) {
       setTax('');
       setInsurance('');
       setPmi('');
+      setAnnualInsurance('');
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -190,6 +192,33 @@ export function MortgageEscrowModal({ accountId }: MortgageEscrowModalProps) {
                   }}
                   style={dateInputStyle}
                 />
+              </FormField>
+              <FormField>
+                <FormLabel
+                  title={t('Annual insurance premium ($/yr):')}
+                  htmlFor="esc-annual-ins"
+                />
+                <Input
+                  id="esc-annual-ins"
+                  value={annualInsurance}
+                  onChangeValue={v => {
+                    setAnnualInsurance(v);
+                    const yearly = parseFloat(v);
+                    if (!Number.isNaN(yearly)) {
+                      setInsurance((yearly / 12).toFixed(2));
+                    }
+                  }}
+                  placeholder="1435"
+                />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: theme.pageTextSubdued,
+                    marginTop: 2,
+                  }}
+                >
+                  <Trans>Fills the monthly insurance below (÷ 12).</Trans>
+                </Text>
               </FormField>
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <FormField style={{ flex: 1 }}>

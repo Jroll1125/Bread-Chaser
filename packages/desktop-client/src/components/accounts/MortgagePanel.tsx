@@ -154,6 +154,12 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
         modal: { name: 'mortgage-escrow', options: { accountId: account.id } },
       }),
     );
+  const openImport = () =>
+    dispatch(
+      pushModal({
+        modal: { name: 'mortgage-import', options: { accountId: account.id } },
+      }),
+    );
 
   const cardStyle = {
     flex: '1 1 130px',
@@ -372,17 +378,18 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
         </View>
       </View>
 
-      <Button
-        variant="bare"
-        onPress={() => setShowDetails(v => !v)}
-        style={{ alignSelf: 'flex-start' }}
-      >
-        {showDetails ? (
-          <Trans>Hide schedule & payoff</Trans>
-        ) : (
-          <Trans>Show schedule & payoff</Trans>
-        )}
-      </Button>
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <Button variant="primary" onPress={openImport}>
+          <Trans>Import splits from statements…</Trans>
+        </Button>
+        <Button variant="bare" onPress={() => setShowDetails(v => !v)}>
+          {showDetails ? (
+            <Trans>Hide schedule & payoff</Trans>
+          ) : (
+            <Trans>Show schedule & payoff</Trans>
+          )}
+        </Button>
+      </View>
 
       {showDetails && effectivePI != null && (
         <>

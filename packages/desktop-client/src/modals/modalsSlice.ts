@@ -178,6 +178,12 @@ export type Modal =
       };
     }
   | {
+      name: 'mortgage-import';
+      options: {
+        accountId: AccountEntity['id'];
+      };
+    }
+  | {
       name: 'simplefin-init';
       options: {
         onSuccess: () => void;
