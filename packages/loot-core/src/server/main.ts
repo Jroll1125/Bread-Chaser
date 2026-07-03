@@ -24,6 +24,7 @@ import { app as filtersApp } from './filters/app';
 import { app as forecastApp } from './forecast/app';
 import { app as formulasApp } from './formulas/app';
 import { app } from './main-app';
+import { app as mortgageApp } from './mortgage/app';
 import { mutator, runHandler } from './mutators';
 import { app as notesApp } from './notes/app';
 import { app as payeesApp } from './payees/app';
@@ -151,6 +152,7 @@ app.combine(
   encryptionApp,
   tagsApp,
   attachmentsApp,
+  mortgageApp,
 );
 
 export function getDefaultDocumentDir() {
