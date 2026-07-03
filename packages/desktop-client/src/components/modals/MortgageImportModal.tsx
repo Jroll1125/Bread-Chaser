@@ -45,9 +45,24 @@ type Row = Proposal & {
   insStr: string;
   pmiStr: string;
   include: boolean;
+  // The statement PDF itself, kept so a successful split can attach it to
+  // the payment transaction.
+  dataBase64: string;
+  attached?: boolean;
   result?: 'ok' | 'error';
   resultMsg?: string;
 };
+
+// Statement PDFs are small (~100 KB); chunked btoa keeps the call stack flat.
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
 
 function money(cents: number): string {
   return (cents / 100).toLocaleString('en-US', {
@@ -84,9 +99,11 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
     try {
       setWorking(t('Reading PDFs…'));
       const statements: Array<{ fileName: string; text: string }> = [];
+      const pdfData: string[] = [];
       for (const file of Array.from(files)) {
         const text = await extractPdfText(file);
         statements.push({ fileName: file.name, text });
+        pdfData.push(await fileToBase64(file));
       }
 
       setWorking(t('Reading your statements with the local AI…'));
@@ -95,14 +112,17 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
         statements,
       })) as Proposal[];
 
+      // Proposals come back 1:1 in input order, so index pairs each one with
+      // its PDF bytes.
       setRows(
-        proposals.map(p => ({
+        proposals.map((p, idx) => ({
           ...p,
           interestStr: fromCents(p.interest),
           taxStr: fromCents(p.propertyTax),
           insStr: fromCents(p.homeInsurance),
           pmiStr: fromCents(p.pmi),
           include: p.status === 'matched',
+          dataBase64: pdfData[idx] ?? '',
         })),
       );
       setStep('review');
@@ -141,6 +161,31 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
           },
         });
         update(i, { result: 'ok' });
+
+        // Attach the statement PDF to the payment it just split. sourceKey
+        // makes re-imports idempotent; a failed attach never fails the split.
+        if (r.dataBase64) {
+          try {
+            await send('attachments-add-data', {
+              transactionId: r.matchedTransactionId,
+              fileName: r.fileName,
+              dataBase64: r.dataBase64,
+              contentType: 'application/pdf',
+              sourceKey:
+                'mortgage-stmt:' + accountId + ':' + (r.statementDate ?? r.fileName),
+            });
+            update(i, { attached: true });
+          } catch (attachErr) {
+            update(i, {
+              resultMsg: t('Split applied, but attaching the PDF failed: {{message}}', {
+                message:
+                  attachErr instanceof Error
+                    ? attachErr.message
+                    : String(attachErr),
+              }),
+            });
+          }
+        }
       } catch (err) {
         update(i, {
           result: 'error',
@@ -297,6 +342,7 @@ export function MortgageImportModal({ accountId }: MortgageImportModalProps) {
                               {matched
                                 ? r.matchedDate
                                 : t(STATUS_LABEL[r.status])}
+                              {r.attached && ' 📎'}
                             </Text>
                           </td>
                           {matched ? (

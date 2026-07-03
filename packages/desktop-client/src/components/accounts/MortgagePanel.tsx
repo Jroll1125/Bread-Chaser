@@ -5,7 +5,7 @@ import { Button } from '@actual-app/components/button';
 import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
-import { send } from '@actual-app/core/platform/client/connection';
+import { listen, send } from '@actual-app/core/platform/client/connection';
 import { currentDay } from '@actual-app/core/shared/months';
 import {
   addMonths,
@@ -17,6 +17,7 @@ import {
 } from '@actual-app/core/shared/mortgage';
 import type { AccountEntity } from '@actual-app/core/types/models';
 
+import { useNavigate } from '#hooks/useNavigate';
 import { pushModal } from '#modals/modalsSlice';
 import { useDispatch } from '#redux';
 
@@ -47,6 +48,21 @@ type Summary = {
   insurancePaid: number;
   pmiPaid: number;
   escrowPaid: number;
+};
+
+type PaymentRow = {
+  parentId: string;
+  fundingAccountId: string;
+  fundingAccountName: string;
+  date: string;
+  total: number;
+  interest: number;
+  propertyTax: number;
+  homeInsurance: number;
+  pmi: number;
+  principal: number;
+  hasTransfer: boolean;
+  attachmentCount: number;
 };
 
 function money(cents: number): string {
@@ -86,24 +102,43 @@ type MortgagePanelProps = {
 export function MortgagePanel({ account }: MortgagePanelProps) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
+  const navigate = useNavigate();
   const [config, setConfig] = useState<Config | null | undefined>(undefined);
   const [summary, setSummary] = useState<Summary | null | undefined>(undefined);
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [showDetails, setShowDetails] = useState(false);
+  const [showPayments, setShowPayments] = useState(false);
   const [extra, setExtra] = useState(0); // extra principal $/mo
 
   const load = useCallback(async () => {
-    const [cfg, sum] = await Promise.all([
+    const [cfg, sum, pays] = await Promise.all([
       send('mortgage-get-config', { accountId: account.id }),
       send('mortgage-get-summary', { accountId: account.id }),
+      send('mortgage-get-payments', { accountId: account.id }),
     ]);
     setConfig(cfg);
     setSummary(sum);
+    setPayments(pays);
   }, [account.id]);
 
   useEffect(() => {
     load().catch(() => {
       setConfig(null);
       setSummary(null);
+    });
+  }, [load]);
+
+  // Splits, imports, and attachments all land as sync events; keep the panel
+  // (summary numbers + payment history) live instead of mount-time stale.
+  useEffect(() => {
+    return listen('sync-event', event => {
+      if (
+        (event.type === 'applied' || event.type === 'success') &&
+        (event.tables?.includes('transactions') ||
+          event.tables?.includes('transaction_attachments'))
+      ) {
+        load().catch(() => {});
+      }
     });
   }, [load]);
 
@@ -382,6 +417,15 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
         <Button variant="primary" onPress={openImport}>
           <Trans>Import splits from statements…</Trans>
         </Button>
+        {payments.length > 0 && (
+          <Button variant="bare" onPress={() => setShowPayments(v => !v)}>
+            {showPayments ? (
+              <Trans>Hide payment history</Trans>
+            ) : (
+              <Trans>Payment history ({{ count: payments.length }})</Trans>
+            )}
+          </Button>
+        )}
         <Button variant="bare" onPress={() => setShowDetails(v => !v)}>
           {showDetails ? (
             <Trans>Hide schedule & payoff</Trans>
@@ -390,6 +434,107 @@ export function MortgagePanel({ account }: MortgagePanelProps) {
           )}
         </Button>
       </View>
+
+      {showPayments && payments.length > 0 && (
+        <View
+          style={{
+            border: '1px solid ' + theme.tableBorder,
+            borderRadius: 8,
+            overflow: 'hidden',
+          }}
+        >
+          <View
+            style={{
+              flexDirection: 'row',
+              padding: '6px 12px',
+              backgroundColor: theme.tableRowHeaderBackground,
+            }}
+          >
+            <Text style={{ flex: 1.4, fontSize: 12, color: theme.pageTextSubdued }}>
+              <Trans>Paid</Trans>
+            </Text>
+            <Text style={{ flex: 1.6, fontSize: 12, color: theme.pageTextSubdued }}>
+              <Trans>From</Trans>
+            </Text>
+            <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+              <Trans>Interest</Trans>
+            </Text>
+            <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+              <Trans>Escrow</Trans>
+            </Text>
+            <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+              <Trans>Principal</Trans>
+            </Text>
+            <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', color: theme.pageTextSubdued }}>
+              <Trans>Total</Trans>
+            </Text>
+            <Text style={{ width: 40 }} />
+          </View>
+          {payments.map(p => (
+            <View
+              key={p.parentId}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: '4px 12px',
+                borderTop: '1px solid ' + theme.tableBorder,
+              }}
+            >
+              <Text style={{ flex: 1.4, fontSize: 12 }}>{p.date}</Text>
+              <View style={{ flex: 1.6, flexDirection: 'row', alignItems: 'center' }}>
+                <Button
+                  variant="bare"
+                  style={{ fontSize: 12, padding: '2px 4px' }}
+                  onPress={() => navigate('/accounts/' + p.fundingAccountId)}
+                >
+                  {p.fundingAccountName}
+                </Button>
+                {!p.hasTransfer && (
+                  <Text
+                    style={{ fontSize: 11, color: theme.warningText }}
+                    title={t(
+                      'The Principal line is not linked as a transfer, so this payment is missing from the loan ledger.',
+                    )}
+                  >
+                    ⚠
+                  </Text>
+                )}
+              </View>
+              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right' }}>
+                {moneyCents(p.interest)}
+              </Text>
+              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right' }}>
+                {moneyCents(p.propertyTax + p.homeInsurance + p.pmi)}
+              </Text>
+              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right', fontWeight: 500 }}>
+                {moneyCents(p.principal)}
+              </Text>
+              <Text style={{ flex: 1, fontSize: 12, textAlign: 'right' }}>
+                {moneyCents(p.total)}
+              </Text>
+              <View style={{ width: 40, alignItems: 'flex-end' }}>
+                <Button
+                  variant="bare"
+                  style={{ fontSize: 12, padding: '2px 4px' }}
+                  aria-label={t('Attachments')}
+                  onPress={() =>
+                    dispatch(
+                      pushModal({
+                        modal: {
+                          name: 'transaction-attachments',
+                          options: { transactionId: p.parentId },
+                        },
+                      }),
+                    )
+                  }
+                >
+                  {p.attachmentCount > 0 ? `📎${p.attachmentCount}` : '📎'}
+                </Button>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
 
       {showDetails && effectivePI != null && (
         <>
