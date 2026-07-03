@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Trans, useTranslation } from 'react-i18next';
 
+import { format as formatDate, parseISO } from 'date-fns';
+
 import { Button, ButtonWithLoading } from '@actual-app/components/button';
 import { Input } from '@actual-app/components/input';
 import { Text } from '@actual-app/components/text';
@@ -18,6 +20,7 @@ import type {
 
 import { Error as ErrorAlert } from '#components/alerts';
 import { useCategories } from '#hooks/useCategories';
+import { useDateFormat } from '#hooks/useDateFormat';
 import { usePayees } from '#hooks/usePayees';
 import { aqlQuery } from '#queries/aqlQuery';
 
@@ -30,6 +33,15 @@ function receiptAmount(item: EmailReviewItem): number {
   return item.receipt.direction === 'refund'
     ? Math.abs(item.receipt.amount_cents)
     : -Math.abs(item.receipt.amount_cents);
+}
+
+// Format an ISO (yyyy-mm-dd) date with the user's configured date format, so
+// dates here read the same as the transaction register.
+function formatReceiptDate(
+  date: string | null | undefined,
+  dateFormat: string,
+): string {
+  return date ? formatDate(parseISO(date), dateFormat) : '';
 }
 
 function bestProposal(item: EmailReviewItem): EmailMatchProposal | null {
@@ -84,6 +96,7 @@ function LinkPicker({
 }) {
   const { t } = useTranslation();
   const { data: payees = [] } = usePayees();
+  const dateFormat = useDateFormat() || 'MM/dd/yyyy';
   const payeeName = useMemo(() => {
     const byId = new Map(payees.map(p => [p.id, p.name] as const));
     return (id: string | null | undefined) => (id ? (byId.get(id) ?? '') : '');
@@ -157,7 +170,8 @@ function LinkPicker({
                 whiteSpace: 'nowrap',
               }}
             >
-              {txn.date} · {payeeName(txn.payee) || (txn.notes ?? '-')} ·{' '}
+              {formatReceiptDate(txn.date, dateFormat)} ·{' '}
+              {payeeName(txn.payee) || (txn.notes ?? '-')} ·{' '}
               {integerToCurrency(txn.amount ?? 0)}
             </Text>
             <Button
@@ -220,6 +234,7 @@ export function EmailReceiptsReviewTable() {
   const { data: payees = [] } = usePayees();
   const { data: categoryData } = useCategories();
   const categoryGroups = categoryData?.grouped ?? [];
+  const dateFormat = useDateFormat() || 'MM/dd/yyyy';
 
   const reload = async () => {
     try {
@@ -294,6 +309,19 @@ export function EmailReceiptsReviewTable() {
     payeeOverrides[item.messageId] ?? item.receipt.merchant;
   const categoryFor = (item: EmailReviewItem) =>
     categoryOverrides[item.messageId] ?? '';
+  const fmtDate = (d?: string | null) => formatReceiptDate(d, dateFormat);
+
+  // Shared styling so the payee input and category dropdown match the app's
+  // form controls (and each other) instead of looking squished.
+  const fieldStyle: React.CSSProperties = {
+    width: '100%',
+    fontSize: 13,
+    padding: 5,
+    borderRadius: 4,
+    border: '1px solid ' + theme.formInputBorder,
+    backgroundColor: theme.tableBackground,
+    color: theme.formInputText,
+  };
 
   return (
     <View style={{ gap: 18 }}>
@@ -421,17 +449,19 @@ export function EmailReceiptsReviewTable() {
               }}
             >
               <colgroup>
-                <col style={{ width: '30%' }} />
-                <col style={{ width: '10%' }} />
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '9%' }} />
                 <col style={{ width: '11%' }} />
+                <col style={{ width: '21%' }} />
                 <col style={{ width: '24%' }} />
-                <col style={{ width: '25%' }} />
               </colgroup>
               <thead>
                 <tr
                   style={{ backgroundColor: theme.tableRowHeaderBackground }}
                 >
                   <th style={headCell}>{t('Receipt')}</th>
+                  <th style={headCell}>{t('Category')}</th>
                   <th style={{ ...headCell, textAlign: 'right' }}>
                     {t('Amount')}
                   </th>
@@ -444,7 +474,7 @@ export function EmailReceiptsReviewTable() {
                 {pending.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       style={{ ...cell, color: theme.pageTextSubdued }}
                     >
                       <Trans>
@@ -464,74 +494,47 @@ export function EmailReceiptsReviewTable() {
                         }}
                       >
                         <td style={cell}>
-                          {/* The bold merchant line IS the editable payee box
-                              (defaults to the extracted merchant). */}
-                          <input
+                          {/* Payee field — app-standard Input (autocompletes
+                              existing payees), defaults to the merchant. */}
+                          <Input
                             list="bc-email-payee-options"
                             value={payeeFor(item)}
                             disabled={isBusy}
                             placeholder={item.receipt.merchant}
                             aria-label={t('Payee')}
-                            onChange={e =>
+                            onChangeValue={value =>
                               setPayeeOverrides(prev => ({
                                 ...prev,
-                                [item.messageId]: e.target.value,
+                                [item.messageId]: value,
                               }))
                             }
-                            style={{
-                              width: '100%',
-                              fontWeight: 600,
-                              fontSize: 13,
-                              padding: '2px 6px',
-                              borderRadius: 4,
-                              border: '1px solid ' + theme.tableBorder,
-                              backgroundColor: theme.tableBackground,
-                              color: theme.pageText,
-                            }}
+                            style={{ width: '100%', fontWeight: 500 }}
                           />
-                          {/* Subject doubles as the preview trigger. */}
-                          <button
-                            type="button"
-                            onClick={() => void openPreview(item.messageId)}
-                            title={t('Preview the receipt email')}
+                          <div
                             style={{
-                              display: 'block',
-                              marginTop: 3,
-                              maxWidth: '100%',
+                              marginTop: 4,
+                              color: theme.pageTextSubdued,
+                              fontSize: 12,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              background: 'none',
-                              border: 0,
-                              padding: 0,
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              fontSize: 12,
-                              color: theme.pageTextLink,
-                              textDecoration: 'underline',
                             }}
                           >
                             {item.subject ?? item.from ?? item.messageId}
-                          </button>
+                          </div>
+                        </td>
+                        {/* New Category column, between Receipt and Amount. */}
+                        <td style={cell}>
                           <select
                             value={categoryFor(item)}
                             disabled={isBusy}
+                            aria-label={t('Category')}
                             onChange={e =>
                               setCategoryOverrides(prev => ({
                                 ...prev,
                                 [item.messageId]: e.target.value,
                               }))
                             }
-                            style={{
-                              width: '100%',
-                              marginTop: 5,
-                              fontSize: 12,
-                              padding: '2px 4px',
-                              borderRadius: 4,
-                              border: '1px solid ' + theme.tableBorder,
-                              backgroundColor: theme.tableBackground,
-                              color: theme.pageText,
-                            }}
+                            style={fieldStyle}
                           >
                             <option value="">{t('Uncategorized')}</option>
                             {categoryGroups
@@ -558,7 +561,7 @@ export function EmailReceiptsReviewTable() {
                         >
                           {integerToCurrency(receiptAmount(item))}
                         </td>
-                        <td style={cell}>{item.receipt.date}</td>
+                        <td style={cell}>{fmtDate(item.receipt.date)}</td>
                         <td
                           style={{
                             ...cell,
@@ -568,7 +571,7 @@ export function EmailReceiptsReviewTable() {
                           }}
                         >
                           {best
-                            ? `${best.transactionDate} · ${best.transactionPayee ?? '-'} · ${integerToCurrency(best.transactionAmount)}`
+                            ? `${fmtDate(best.transactionDate)} · ${best.transactionPayee ?? '-'} · ${integerToCurrency(best.transactionAmount)}`
                             : t('No match found yet')}
                         </td>
                         <td style={{ ...cell, textAlign: 'right' }}>
@@ -619,6 +622,13 @@ export function EmailReceiptsReviewTable() {
                             >
                               {t('Link…')}
                             </Button>
+                            {/* Preview the receipt email, alongside the other
+                                row actions. */}
+                            <Button
+                              onPress={() => void openPreview(item.messageId)}
+                            >
+                              {t('Preview')}
+                            </Button>
                             <Button
                               variant="bare"
                               isDisabled={isBusy}
@@ -637,7 +647,7 @@ export function EmailReceiptsReviewTable() {
                       </tr>
                       {isLinking && (
                         <tr>
-                          <td colSpan={5} style={{ padding: '0 10px 10px' }}>
+                          <td colSpan={6} style={{ padding: '0 10px 10px' }}>
                             <LinkPicker
                               item={item}
                               busy={isBusy}
@@ -772,7 +782,7 @@ export function EmailReceiptsReviewTable() {
                         >
                           {integerToCurrency(receiptAmount(item))}
                         </td>
-                        <td style={cell}>{item.receipt.date}</td>
+                        <td style={cell}>{fmtDate(item.receipt.date)}</td>
                         <td style={cell}>
                           <div
                             style={{
@@ -780,7 +790,7 @@ export function EmailReceiptsReviewTable() {
                               textOverflow: 'ellipsis',
                             }}
                           >
-                            {appliedProposal.transactionDate} ·{' '}
+                            {fmtDate(appliedProposal.transactionDate)} ·{' '}
                             {appliedProposal.transactionPayee ?? '-'}
                           </div>
                           <div

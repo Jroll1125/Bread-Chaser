@@ -41,7 +41,8 @@ export function EmailReceiptsPage() {
           </Text>
           <EmailReceiptsCard />
         </View>
-        <View style={{ maxWidth: 1000, flexShrink: 0 }}>
+        {/* Full window width (the settings card above stays narrow). */}
+        <View style={{ flexShrink: 0 }}>
           <EmailReceiptsReviewTable />
         </View>
       </View>
