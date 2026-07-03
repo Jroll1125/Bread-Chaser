@@ -517,7 +517,10 @@ type PayeeCellProps = {
   onUpdate: TransactionUpdateFunction;
   onCreatePayee: (name: string) => Promise<null | PayeeEntity['id']>;
   onManagePayees: (id: PayeeEntity['id'] | undefined) => void;
-  onNavigateToTransferAccount: (id: AccountEntity['id']) => void;
+  onNavigateToTransferAccount: (
+    id: AccountEntity['id'],
+    transactionId?: TransactionEntity['id'],
+  ) => void;
   onNavigateToSchedule: (id: ScheduleEntity['id']) => void;
 };
 
@@ -817,7 +820,10 @@ function AttachmentIcon({ transactionId }: AttachmentIconProps) {
 type PayeeIconsProps = {
   transaction: SerializedTransaction;
   transferAccount: AccountEntity | null;
-  onNavigateToTransferAccount: (id: AccountEntity['id']) => void;
+  onNavigateToTransferAccount: (
+    id: AccountEntity['id'],
+    transactionId?: TransactionEntity['id'],
+  ) => void;
   onNavigateToSchedule: (id: ScheduleEntity['id']) => void;
 };
 
@@ -879,7 +885,12 @@ function PayeeIcons({
           style={payeeIconButtonStyle}
           onPress={() => {
             if (!isTemporaryId(transaction.id)) {
-              onNavigateToTransferAccount(transferAccount.id);
+              // Land on the mirror transaction in the other account, not just
+              // the account itself.
+              onNavigateToTransferAccount(
+                transferAccount.id,
+                transaction.transfer_id ?? undefined,
+              );
             }
           }}
         >
@@ -940,7 +951,10 @@ type TransactionProps = {
   onToggleSplit: (id: TransactionEntity['id']) => void;
   onCreatePayee: (name: string) => Promise<null | PayeeEntity['id']>;
   onManagePayees: (id: PayeeEntity['id'] | undefined) => void;
-  onNavigateToTransferAccount: (id: AccountEntity['id']) => void;
+  onNavigateToTransferAccount: (
+    id: AccountEntity['id'],
+    transactionId?: TransactionEntity['id'],
+  ) => void;
   onNavigateToSchedule: (id: ScheduleEntity['id']) => void;
   onNotesTagClick: (tag: string) => void;
   splitError?: ReactNode;
@@ -2176,7 +2190,10 @@ type NewTransactionProps = {
   onEdit: (id: TransactionEntity['id'], field: string) => void;
   onManagePayees: (id: PayeeEntity['id'] | undefined) => void;
   onNavigateToSchedule: (id: ScheduleEntity['id']) => void;
-  onNavigateToTransferAccount: (id: AccountEntity['id']) => void;
+  onNavigateToTransferAccount: (
+    id: AccountEntity['id'],
+    transactionId?: TransactionEntity['id'],
+  ) => void;
   onNotesTagClick: (tag: string) => void;
   onSave: (
     tx: TransactionEntity,
@@ -2386,7 +2403,12 @@ type TransactionTableInnerProps = {
   onAdd: (transactions: TransactionEntity[]) => void;
   onCreatePayee: (name: string) => Promise<null | PayeeEntity['id']>;
   style?: CSSProperties;
-  onNavigateToTransferAccount: (id: AccountEntity['id']) => void;
+  // Briefly emphasized row, e.g. the mirror a transfer arrow navigated to.
+  highlightedTransactionId?: TransactionEntity['id'] | null;
+  onNavigateToTransferAccount: (
+    id: AccountEntity['id'],
+    transactionId?: TransactionEntity['id'],
+  ) => void;
   onNavigateToSchedule: (id: ScheduleEntity['id']) => void;
   onNotesTagClick: (tag: string) => void;
   sortField: string;
@@ -2452,9 +2474,12 @@ function TransactionTableInner({
   } = props;
 
   const onNavigateToTransferAccount = useCallback(
-    (accountId: AccountEntity['id']) => {
+    (
+      accountId: AccountEntity['id'],
+      transactionId?: TransactionEntity['id'],
+    ) => {
       onCloseAddTransactionProp();
-      onNavigateToTransferAccountProp(accountId);
+      onNavigateToTransferAccountProp(accountId, transactionId);
     },
     [onCloseAddTransactionProp, onNavigateToTransferAccountProp],
   );
@@ -2578,7 +2603,7 @@ function TransactionTableInner({
         showBalance={showBalances}
         showCleared={showCleared}
         selected={selected}
-        highlighted={false}
+        highlighted={props.highlightedTransactionId === trans.id}
         added={isNew?.(trans.id)}
         expanded={isExpanded?.(trans.id)}
         matched={isMatched?.(trans.id)}
@@ -2783,7 +2808,12 @@ export type TransactionTableProps = {
   onAdd: (transactions: TransactionEntity[]) => void;
   onCreatePayee: (name: string) => Promise<null | PayeeEntity['id']>;
   style?: CSSProperties;
-  onNavigateToTransferAccount: (id: AccountEntity['id']) => void;
+  // Briefly emphasized row, e.g. the mirror a transfer arrow navigated to.
+  highlightedTransactionId?: TransactionEntity['id'] | null;
+  onNavigateToTransferAccount: (
+    id: AccountEntity['id'],
+    transactionId?: TransactionEntity['id'],
+  ) => void;
   onNavigateToSchedule: (id: ScheduleEntity['id']) => void;
   onNotesTagClick: (tag: string) => void;
   onSort: (field: string, ascDesc: 'asc' | 'desc') => void;

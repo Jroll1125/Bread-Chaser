@@ -270,6 +270,7 @@ type TransactionListProps = Pick<
   | 'showSelection'
   | 'sortField'
   | 'transactions'
+  | 'highlightedTransactionId'
 > & {
   tableRef: RefObject<TableHandleRef<TransactionEntity> | null>;
   allTransactions: TransactionEntity[];
@@ -327,6 +328,7 @@ export function TransactionList({
   onCreateRule,
   onScheduleAction,
   onMakeAsNonSplitTransactions,
+  highlightedTransactionId,
 }: TransactionListProps) {
   const { t } = useTranslation();
 
@@ -580,8 +582,16 @@ export function TransactionList({
   );
 
   const onNavigateToTransferAccount = useCallback(
-    (accountId: AccountEntity['id']) => {
-      void navigate(`/accounts/${accountId}`);
+    (
+      accountId: AccountEntity['id'],
+      transactionId?: TransactionEntity['id'],
+    ) => {
+      void navigate(
+        `/accounts/${accountId}`,
+        transactionId
+          ? { state: { scrollToTransactionId: transactionId } }
+          : undefined,
+      );
     },
     [navigate],
   );
@@ -758,6 +768,7 @@ export function TransactionList({
         onManagePayees={onManagePayees}
         onCreatePayee={onCreatePayee}
         style={{ backgroundColor: theme.tableBackground }}
+        highlightedTransactionId={highlightedTransactionId}
         onNavigateToTransferAccount={onNavigateToTransferAccount}
         onNavigateToSchedule={onNavigateToSchedule}
         onNotesTagClick={onNotesTagClick}

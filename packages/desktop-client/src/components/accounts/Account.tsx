@@ -284,6 +284,7 @@ type AccountInternalState = {
     prevAscDesc?: 'asc' | 'desc' | undefined;
   } | null;
   filteredAmount: null | number;
+  highlightedTransactionId: null | string;
 };
 
 export type TableRef = RefObject<{
@@ -328,7 +329,33 @@ class AccountInternal extends PureComponent<
       isAdding: false,
       sort: null,
       filteredAmount: null,
+      highlightedTransactionId: null,
     };
+  }
+
+  // Transfer/split arrows navigate here with a target transaction in the
+  // route state; scroll to it once the register has data and flash it.
+  _scrolledToTransactionId: string | null = null;
+  _highlightTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  maybeScrollToLinkedTransaction() {
+    const targetId = this.props.location?.state?.scrollToTransactionId;
+    if (
+      !targetId ||
+      targetId === this._scrolledToTransactionId ||
+      this.state.transactions.length === 0
+    ) {
+      return;
+    }
+    this._scrolledToTransactionId = targetId;
+    this.table.current?.scrollTo(targetId);
+    this.setState({ highlightedTransactionId: targetId });
+    if (this._highlightTimeout) {
+      clearTimeout(this._highlightTimeout);
+    }
+    this._highlightTimeout = setTimeout(() => {
+      this.setState({ highlightedTransactionId: null });
+    }, 1800);
   }
 
   async componentDidMount() {
@@ -420,6 +447,8 @@ class AccountInternal extends PureComponent<
     if (this.props.accountId !== prevProps.accountId) {
       this.setState({ sort: null, search: '', filterConditions: [] });
     }
+
+    this.maybeScrollToLinkedTransaction();
   }
 
   componentWillUnmount() {
@@ -428,6 +457,9 @@ class AccountInternal extends PureComponent<
     }
     if (this.paged) {
       this.paged.unsubscribe();
+    }
+    if (this._highlightTimeout) {
+      clearTimeout(this._highlightTimeout);
     }
   }
 
@@ -1948,6 +1980,9 @@ class AccountInternal extends PureComponent<
                   isNew={this.isNew}
                   isMatched={this.isMatched}
                   isFiltered={transactionsFiltered}
+                  highlightedTransactionId={
+                    this.state.highlightedTransactionId
+                  }
                   dateFormat={dateFormat}
                   hideFraction={hideFraction}
                   renderEmpty={() =>
