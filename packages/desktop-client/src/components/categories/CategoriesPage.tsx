@@ -204,8 +204,11 @@ export function CategoriesPage() {
                 <NameEditor
                   name={group.name}
                   onRename={name =>
+                    // Only send real columns — spreading the whole group
+                    // includes its nested `categories`, which the update
+                    // schema rejects.
                     act(() =>
-                      send('category-group-update', { ...group, name }),
+                      send('category-group-update', { id: group.id, name }),
                     )
                   }
                 />

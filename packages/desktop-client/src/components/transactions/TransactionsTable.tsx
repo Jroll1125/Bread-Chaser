@@ -1832,6 +1832,10 @@ const Transaction = memo(function Transaction({
             onUpdate={async value => {
               if (value === 'split') {
                 onSplit(transaction.id);
+              } else if (value === 'new') {
+                // "Create category" opens a modal that assigns the real id;
+                // never persist the sentinel (e.g. on blur when it's the
+                // highlighted item).
               } else {
                 onUpdate('category', value);
               }

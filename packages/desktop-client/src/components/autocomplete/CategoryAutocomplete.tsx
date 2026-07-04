@@ -18,7 +18,6 @@ import { Text } from '@actual-app/components/text';
 import { TextOneLine } from '@actual-app/components/text-one-line';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
-import { send } from '@actual-app/core/platform/client/connection';
 import { getNormalisedString } from '@actual-app/core/shared/normalisation';
 import { integerToCurrency } from '@actual-app/core/shared/util';
 import type {
@@ -33,6 +32,8 @@ import { FinancialText } from '#components/FinancialText';
 import { useCategories } from '#hooks/useCategories';
 import { useSheetValue } from '#hooks/useSheetValue';
 import { useSyncedPref } from '#hooks/useSyncedPref';
+import { pushModal } from '#modals/modalsSlice';
+import { useDispatch } from '#redux';
 import { envelopeBudget, trackingBudget } from '#spreadsheet/bindings';
 
 import { Autocomplete } from './Autocomplete';
@@ -252,22 +253,11 @@ export function CategoryAutocomplete({
   showNewCategory,
   ...props
 }: CategoryAutocompleteProps) {
-  const {
-    data: { grouped: defaultCategoryGroups } = { grouped: [] },
-    refetch,
-  } = useCategories();
+  const { data: { grouped: defaultCategoryGroups } = { grouped: [] } } =
+    useCategories();
+  const dispatch = useDispatch();
 
-  const groupsForCreate = categoryGroups || defaultCategoryGroups;
-  const createGroupId = useMemo(() => {
-    const expense = groupsForCreate.find(g => !g.is_income && !g.hidden);
-    return (
-      expense?.id ??
-      groupsForCreate.find(g => !g.is_income)?.id ??
-      groupsForCreate[0]?.id ??
-      null
-    );
-  }, [groupsForCreate]);
-  const canCreate = !!showNewCategory && createGroupId != null;
+  const canCreate = !!showNewCategory;
 
   // The shared Autocomplete types onSelect as a single|multi union; create is
   // only wired for the single-select register, so cast to the single form.
@@ -275,19 +265,25 @@ export function CategoryAutocomplete({
     | ((id: string, value: string) => void)
     | undefined;
 
-  const handleSelect = async (id: string, rawInputValue: string) => {
+  const handleSelect = (id: string, rawInputValue: string) => {
     if (id === 'new') {
       const name = rawInputValue.trim();
-      if (createGroupId == null || !name) {
+      if (!name) {
         return;
       }
-      const newId = (await send('category-create', {
-        name,
-        groupId: createGroupId,
-        isIncome: false,
-      })) as string;
-      await refetch();
-      onSelectSingle?.(newId, rawInputValue);
+      // Let the user pick the group (or make a new one), then assign the new
+      // category to the transaction.
+      dispatch(
+        pushModal({
+          modal: {
+            name: 'category-create',
+            options: {
+              initialName: name,
+              onCreate: newId => onSelectSingle?.(newId, rawInputValue),
+            },
+          },
+        }),
+      );
     } else {
       onSelectSingle?.(id, rawInputValue);
     }

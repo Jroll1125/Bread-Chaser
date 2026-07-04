@@ -526,6 +526,13 @@ export type Modal =
       };
     }
   | {
+      name: 'category-create';
+      options: {
+        initialName?: string;
+        onCreate: (categoryId: string) => void;
+      };
+    }
+  | {
       name: 'envelope-balance-menu';
       options: {
         categoryId: CategoryEntity['id'];
