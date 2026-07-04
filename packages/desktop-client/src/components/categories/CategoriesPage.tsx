@@ -153,7 +153,17 @@ export function CategoriesPage() {
         paddingBottom: MOBILE_NAV_HEIGHT,
       }}
     >
-      <View style={{ marginTop: '1em', gap: 16, maxWidth: 900 }}>
+      <View
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          marginTop: '1em',
+        }}
+      >
+        {/* flexShrink: 0 keeps the list at full height so the scroll
+            container above actually scrolls instead of compressing it. */}
+        <View style={{ gap: 16, maxWidth: 900, paddingBottom: 24, flexShrink: 0 }}>
         <Text style={{ color: theme.pageTextSubdued, lineHeight: 1.5 }}>
           <Trans>
             Manage category groups and categories in one place. Income
@@ -373,6 +383,7 @@ export function CategoriesPage() {
           >
             <Trans>Add group</Trans>
           </Button>
+        </View>
         </View>
       </View>
     </Page>

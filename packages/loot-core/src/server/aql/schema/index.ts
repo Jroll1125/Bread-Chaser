@@ -85,6 +85,8 @@ export const schema = {
     name: f('string'),
     is_income: f('boolean'),
     hidden: f('boolean'),
+    exclude_from_budget: f('boolean'),
+    exclude_from_totals: f('boolean'),
     group: f('id', { ref: 'category_groups' }),
     goal_def: f('string'),
     cleanup_def: f('string'),
