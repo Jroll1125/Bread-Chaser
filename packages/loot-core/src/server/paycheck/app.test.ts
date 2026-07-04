@@ -9,7 +9,9 @@ import {
   findPaycheckMatch,
   generatePaycheck,
   getPaycheckConfigs,
+  getPaycheckYtd,
   savePaycheckConfig,
+  setEntryQualifiedOt,
 } from './app';
 
 // Declared untyped in mocks/setup.ts; this file is strict.
@@ -232,6 +234,64 @@ describe('paycheck', () => {
       ['bank-dep'],
     );
     expect(children.reduce((acc, c) => acc + c.amount, 0)).toBe(91_235);
+  });
+
+  it('records qualified overtime per check and sums the YTD', async () => {
+    const config = await savePaycheckConfig(baseConfigInput()); // qualifiedOt 1,910
+    const { transactionId } = await generatePaycheck({
+      configId: config.id,
+      date: '2026-04-10',
+    });
+
+    const entry = await db.first<{
+      qualified_ot: number;
+      transaction_id: string;
+    }>(
+      'SELECT qualified_ot, transaction_id FROM paycheck_entries WHERE config_id = ? AND tombstone = 0',
+      [config.id],
+    );
+    expect(entry?.qualified_ot).toBe(1_910);
+    expect(entry?.transaction_id).toBe(transactionId);
+
+    const ytd = await getPaycheckYtd({ configId: config.id, year: 2026 });
+    expect(ytd?.grossYtd).toBe(269_486);
+    expect(ytd?.taxesYtd).toBe(87_016);
+    expect(ytd?.netYtd).toBe(182_470);
+    expect(ytd?.qualifiedOtYtd).toBe(1_910);
+    expect(ytd?.earnings.find(e => e.name === 'Hourly+Bonus')?.ytd).toBe(
+      267_480,
+    );
+    expect(ytd?.checks).toHaveLength(1);
+    expect(ytd?.checks[0].qualifiedOt).toBe(1_910);
+  });
+
+  it('backfills qualified overtime for a check entered without it', async () => {
+    const config = await savePaycheckConfig({
+      ...baseConfigInput(),
+      qualifiedOt: 0,
+    });
+    const { transactionId } = await generatePaycheck({
+      configId: config.id,
+      date: '2026-01-09',
+    });
+
+    let ytd = await getPaycheckYtd({ configId: config.id, year: 2026 });
+    expect(ytd?.qualifiedOtYtd).toBe(0);
+    expect(
+      ytd?.checks.find(c => c.transactionId === transactionId)?.qualifiedOt,
+    ).toBe(0);
+
+    await setEntryQualifiedOt({
+      configId: config.id,
+      transactionId,
+      qualifiedOt: 5_000,
+    });
+
+    ytd = await getPaycheckYtd({ configId: config.id, year: 2026 });
+    expect(ytd?.qualifiedOtYtd).toBe(5_000);
+    expect(
+      ytd?.checks.find(c => c.transactionId === transactionId)?.qualifiedOt,
+    ).toBe(5_000);
   });
 
   it('rejects deposits that exceed net pay', async () => {

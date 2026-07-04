@@ -40,6 +40,8 @@ type Config = {
   aftertax: Line[];
   deposits: Deposit[];
   qualifiedOt: number;
+  frequency?: Frequency;
+  nextDate?: string;
 };
 
 const toCents = (v: string) => Math.round((parseFloat(v) || 0) * 100);
@@ -218,6 +220,12 @@ export function PaycheckModal({ configId }: PaycheckModalProps = {}) {
           })),
         );
         setQualifiedOtStr(fromCents(existing.qualifiedOt));
+        if (existing.frequency) {
+          setFrequency(existing.frequency);
+        }
+        if (existing.nextDate) {
+          setNextDate(existing.nextDate);
+        }
       }
     })();
   }, [configId]);

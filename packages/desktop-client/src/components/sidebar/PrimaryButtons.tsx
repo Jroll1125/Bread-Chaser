@@ -46,7 +46,7 @@ export function PrimaryButtons() {
     <View style={{ flexShrink: 0 }}>
       <Item title={t('Budget')} Icon={SvgWallet} to="/budget" />
       <Item title={t('Reports')} Icon={SvgReports} to="/reports" />
-      <Item title={t('Schedules')} Icon={SvgCalendar3} to="/schedules" />
+      <Item title={t('Bills & Income')} Icon={SvgCalendar3} to="/schedules" />
       <Item
         title={t('More')}
         Icon={isOpen ? SvgCheveronDown : SvgCheveronRight}

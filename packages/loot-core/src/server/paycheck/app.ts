@@ -11,6 +11,7 @@ import {
 } from '#server/schedules/app';
 import { batchUpdateTransactions } from '#server/transactions';
 import { undoable } from '#server/undo';
+import { currentDay } from '#shared/months';
 import { q } from '#shared/query';
 import { makeChild, recalculateSplit } from '#shared/transactions';
 import type { RuleConditionEntity, TransactionEntity } from '#types/models';
@@ -53,6 +54,9 @@ export type PaycheckConfig = {
   aftertax: PaycheckLine[];
   deposits: PaycheckDeposit[];
   qualifiedOt: number;
+  // Derived from the linked schedule (so the modal can round-trip them).
+  frequency?: PaycheckFrequency;
+  nextDate?: string;
 };
 
 export type PaycheckBreakdown = {
@@ -86,6 +90,8 @@ export type PaycheckHandlers = {
   'paycheck-delete-config': typeof deletePaycheckConfig;
   'paycheck-find-match': typeof findPaycheckMatch;
   'paycheck-generate': typeof generatePaycheck;
+  'paycheck-get-ytd': typeof getPaycheckYtd;
+  'paycheck-set-entry-qualified-ot': typeof setEntryQualifiedOt;
 };
 
 export const app = createApp<PaycheckHandlers>();
@@ -94,6 +100,11 @@ app.method('paycheck-save-config', mutator(undoable(savePaycheckConfig)));
 app.method('paycheck-delete-config', mutator(undoable(deletePaycheckConfig)));
 app.method('paycheck-find-match', findPaycheckMatch);
 app.method('paycheck-generate', mutator(undoable(generatePaycheck)));
+app.method('paycheck-get-ytd', getPaycheckYtd);
+app.method(
+  'paycheck-set-entry-qualified-ot',
+  mutator(undoable(setEntryQualifiedOt)),
+);
 
 function parseLines(json: string | null): PaycheckLine[] {
   if (!json) {
@@ -162,11 +173,51 @@ export function computeBreakdown(config: {
   };
 }
 
+// Read the linked schedule's recurrence back into paycheck terms so the modal
+// shows the real next pay date + frequency instead of resetting to today.
+async function getScheduleMeta(
+  scheduleId: string,
+): Promise<{ frequency: PaycheckFrequency; nextDate: string } | null> {
+  const { data } = await aqlQuery(
+    q('schedules').filter({ id: scheduleId }).select('*'),
+  );
+  const sched = (
+    data as Array<{
+      next_date?: string | null;
+      _date?: { frequency?: string; interval?: number; start?: string } | null;
+    }>
+  )[0];
+  if (!sched) {
+    return null;
+  }
+  const dateCfg = sched._date;
+  let frequency: PaycheckFrequency = 'weekly';
+  if (dateCfg && typeof dateCfg === 'object') {
+    if (dateCfg.frequency === 'monthly') {
+      frequency = 'monthly';
+    } else if (dateCfg.frequency === 'weekly' && dateCfg.interval === 2) {
+      frequency = 'biweekly';
+    }
+  }
+  const nextDate = sched.next_date || dateCfg?.start || currentDay();
+  return { frequency, nextDate };
+}
+
 export async function getPaycheckConfigs(): Promise<PaycheckConfig[]> {
   const rows = await db.all<PaycheckConfigRow>(
     'SELECT * FROM paycheck_configs WHERE tombstone = 0',
   );
-  return rows.map(fromRow);
+  const configs = rows.map(fromRow);
+  for (const config of configs) {
+    if (config.scheduleId) {
+      const meta = await getScheduleMeta(config.scheduleId);
+      if (meta) {
+        config.frequency = meta.frequency;
+        config.nextDate = meta.nextDate;
+      }
+    }
+  }
+  return configs;
 }
 
 async function findOrCreatePayee(name: string): Promise<string> {
@@ -646,5 +697,206 @@ export async function generatePaycheck({
     await batchUpdateTransactions({ added: [parent, ...children] });
   }
 
+  // Record this check so its qualified overtime (which isn't a category and so
+  // can't be summed from the ledger) counts toward the YTD total.
+  await db.insert('paycheck_entries', {
+    id: uuidv4(),
+    config_id: config.id,
+    transaction_id: parent.id,
+    date: Number(date.replace(/-/g, '')),
+    qualified_ot: config.qualifiedOt,
+  });
+
   return { transactionId: parent.id, breakdown };
+}
+
+type PaycheckEntryRow = {
+  id: string;
+  config_id: string | null;
+  transaction_id: string | null;
+  date: number | null;
+  qualified_ot: number | null;
+  tombstone: number;
+};
+
+export type PaycheckYtdLine = {
+  name: string;
+  category: string | null;
+  ytd: number;
+};
+
+export type PaycheckYtdCheck = {
+  transactionId: string;
+  date: string;
+  deposit: number;
+  qualifiedOt: number;
+};
+
+export type PaycheckYtd = {
+  year: number;
+  earnings: PaycheckYtdLine[];
+  grossYtd: number;
+  taxesYtd: number;
+  deductionsYtd: number;
+  netYtd: number;
+  qualifiedOtYtd: number;
+  checks: PaycheckYtdCheck[];
+};
+
+function intToDate(d: number): string {
+  const s = String(d).padStart(8, '0');
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+}
+
+async function sumCategoryYear(
+  category: string,
+  yearStart: number,
+  yearEnd: number,
+): Promise<number> {
+  const row = await db.first<{ s: number | null }>(
+    `SELECT sum(amount) AS s FROM transactions
+      WHERE category = ? AND date >= ? AND date <= ? AND tombstone = 0`,
+    [category, yearStart, yearEnd],
+  );
+  return row?.s ?? 0;
+}
+
+/**
+ * Pay-stub-style year-to-date for a paycheck. Per-line earnings, taxes,
+ * deductions, gross and net are summed from the categorized split children
+ * (works for every check ever entered, no storage needed). Qualified overtime
+ * comes from the per-entry records (the only thing not on the ledger). Also
+ * returns the list of checks entered this year so the caller can show / backfill
+ * their qualified-OT amounts.
+ */
+export async function getPaycheckYtd({
+  configId,
+  year,
+}: {
+  configId: string;
+  year?: number;
+}): Promise<PaycheckYtd | null> {
+  const row = await db.first<PaycheckConfigRow>(
+    'SELECT * FROM paycheck_configs WHERE id = ? AND tombstone = 0',
+    [configId],
+  );
+  if (!row) {
+    return null;
+  }
+  const config = fromRow(row);
+  const y = year ?? Number(currentDay().slice(0, 4));
+  const yearStart = y * 10000 + 101;
+  const yearEnd = y * 10000 + 1231;
+
+  const earnings: PaycheckYtdLine[] = [];
+  let grossYtd = 0;
+  for (const line of config.earnings) {
+    const ytd = line.category
+      ? await sumCategoryYear(line.category, yearStart, yearEnd)
+      : 0;
+    earnings.push({ name: line.name, category: line.category, ytd });
+    grossYtd += ytd;
+  }
+
+  let taxesYtd = 0;
+  for (const line of config.taxes) {
+    if (line.category) {
+      taxesYtd += -(await sumCategoryYear(line.category, yearStart, yearEnd));
+    }
+  }
+  let deductionsYtd = 0;
+  for (const line of [...config.pretax, ...config.aftertax]) {
+    if (line.category) {
+      deductionsYtd += -(await sumCategoryYear(
+        line.category,
+        yearStart,
+        yearEnd,
+      ));
+    }
+  }
+  const netYtd = grossYtd - taxesYtd - deductionsYtd;
+
+  const otRow = await db.first<{ s: number | null }>(
+    `SELECT sum(qualified_ot) AS s FROM paycheck_entries
+      WHERE config_id = ? AND date >= ? AND date <= ? AND tombstone = 0`,
+    [configId, yearStart, yearEnd],
+  );
+  const qualifiedOtYtd = otRow?.s ?? 0;
+
+  // The entered checks (split parents carry the config name in notes), joined to
+  // their qualified-OT record if one exists.
+  const parents = await db.all<{ id: string; date: number; amount: number }>(
+    `SELECT id, date, amount FROM transactions
+      WHERE acct = ? AND notes = ? AND isParent = 1
+        AND date >= ? AND date <= ? AND tombstone = 0
+      ORDER BY date DESC`,
+    [config.accountId, config.name, yearStart, yearEnd],
+  );
+  const entries = await db.all<PaycheckEntryRow>(
+    `SELECT transaction_id, qualified_ot FROM paycheck_entries
+      WHERE config_id = ? AND tombstone = 0`,
+    [configId],
+  );
+  const entryOt = new Map<string, number>();
+  for (const e of entries) {
+    if (e.transaction_id) {
+      entryOt.set(e.transaction_id, e.qualified_ot ?? 0);
+    }
+  }
+  const checks: PaycheckYtdCheck[] = parents.map(p => ({
+    transactionId: p.id,
+    date: intToDate(p.date),
+    deposit: p.amount,
+    qualifiedOt: entryOt.get(p.id) ?? 0,
+  }));
+
+  return {
+    year: y,
+    earnings,
+    grossYtd,
+    taxesYtd,
+    deductionsYtd,
+    netYtd,
+    qualifiedOtYtd,
+    checks,
+  };
+}
+
+/**
+ * Backfill / correct the qualified overtime recorded for one entered check.
+ * Creates the record if the check predates qualified-OT tracking.
+ */
+export async function setEntryQualifiedOt({
+  configId,
+  transactionId,
+  qualifiedOt,
+}: {
+  configId: string;
+  transactionId: string;
+  qualifiedOt: number;
+}): Promise<'ok'> {
+  const amount = Math.round(qualifiedOt || 0);
+  const existing = await db.first<{ id: string }>(
+    'SELECT id FROM paycheck_entries WHERE transaction_id = ? AND tombstone = 0',
+    [transactionId],
+  );
+  if (existing) {
+    await db.update('paycheck_entries', {
+      id: existing.id,
+      qualified_ot: amount,
+    });
+    return 'ok';
+  }
+  const txn = await db.first<{ date: number }>(
+    'SELECT date FROM transactions WHERE id = ?',
+    [transactionId],
+  );
+  await db.insert('paycheck_entries', {
+    id: uuidv4(),
+    config_id: configId,
+    transaction_id: transactionId,
+    date: txn?.date ?? Number(currentDay().replace(/-/g, '')),
+    qualified_ot: amount,
+  });
+  return 'ok';
 }
