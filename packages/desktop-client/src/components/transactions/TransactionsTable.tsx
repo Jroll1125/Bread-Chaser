@@ -1858,6 +1858,7 @@ const Transaction = memo(function Transaction({
                   showSplitOption={
                     !isChild && !isParent && allowSplitTransaction
                   }
+                  showNewCategory
                   shouldSaveFromKey={shouldSaveFromKey}
                   inputProps={{ onBlur, onKeyDown, style: inputStyle }}
                   onUpdate={onUpdate}

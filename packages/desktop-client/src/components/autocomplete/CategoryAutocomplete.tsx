@@ -11,12 +11,15 @@ import type {
 import { Trans, useTranslation } from 'react-i18next';
 
 import { useResponsive } from '@actual-app/components/hooks/useResponsive';
+import { SvgAdd } from '@actual-app/components/icons/v1';
 import { SvgSplit } from '@actual-app/components/icons/v0';
 import { styles } from '@actual-app/components/styles';
 import { Text } from '@actual-app/components/text';
 import { TextOneLine } from '@actual-app/components/text-one-line';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
+import { send } from '@actual-app/core/platform/client/connection';
+import { getNormalisedString } from '@actual-app/core/shared/normalisation';
 import { integerToCurrency } from '@actual-app/core/shared/util';
 import type {
   CategoryEntity,
@@ -73,11 +76,15 @@ function CategoryList({
   showBalances,
 }: CategoryListProps) {
   const { t } = useTranslation();
-  const { splitTransaction, groupedCategories } = useMemo(() => {
+  const { splitTransaction, createCategory, groupedCategories } = useMemo(() => {
     return items.reduce(
       (acc, item, index) => {
         if (item.id === 'split') {
           acc.splitTransaction = { ...item, highlightedIndex: index };
+          return acc;
+        }
+        if (item.id === 'new') {
+          acc.createCategory = { ...item, highlightedIndex: index };
           return acc;
         }
 
@@ -103,9 +110,15 @@ function CategoryList({
       },
       {
         splitTransaction: null,
+        createCategory: null,
         groupedCategories: [],
       } as {
         splitTransaction:
+          | (CategoryAutocompleteItem & {
+              highlightedIndex: number;
+            })
+          | null;
+        createCategory:
           | (CategoryAutocompleteItem & {
               highlightedIndex: number;
             })
@@ -144,6 +157,25 @@ function CategoryList({
                 splitTransaction.highlightedIndex === highlightedIndex,
               embedded,
             });
+          })()}
+        {createCategory &&
+          (() => {
+            const createButtonProps = getItemProps
+              ? getItemProps({ item: createCategory })
+              : {};
+            const { onClick, ...restCreateButtonProps } = createButtonProps;
+            return (
+              <CreateCategoryButton
+                key="create-category"
+                {...restCreateButtonProps}
+                onClick={onClick}
+                categoryName={createCategory.name}
+                highlighted={
+                  createCategory.highlightedIndex === highlightedIndex
+                }
+                embedded={embedded}
+              />
+            );
           })()}
         {groupedCategories.map(({ group, categories }) => {
           if (!group) {
@@ -201,6 +233,10 @@ type CategoryAutocompleteProps = ComponentProps<
     props: ComponentPropsWithoutRef<typeof CategoryItem>,
   ) => ReactElement<typeof CategoryItem>;
   showHiddenCategories?: boolean;
+  // Offer a "Create category" option when the typed name doesn't exist yet
+  // (mirrors the payee autocomplete). New categories land in the first
+  // expense group.
+  showNewCategory?: boolean;
 };
 
 export function CategoryAutocomplete({
@@ -213,10 +249,78 @@ export function CategoryAutocomplete({
   renderCategoryItemGroupHeader,
   renderCategoryItem,
   showHiddenCategories,
+  showNewCategory,
   ...props
 }: CategoryAutocompleteProps) {
-  const { data: { grouped: defaultCategoryGroups } = { grouped: [] } } =
-    useCategories();
+  const {
+    data: { grouped: defaultCategoryGroups } = { grouped: [] },
+    refetch,
+  } = useCategories();
+
+  const groupsForCreate = categoryGroups || defaultCategoryGroups;
+  const createGroupId = useMemo(() => {
+    const expense = groupsForCreate.find(g => !g.is_income && !g.hidden);
+    return (
+      expense?.id ??
+      groupsForCreate.find(g => !g.is_income)?.id ??
+      groupsForCreate[0]?.id ??
+      null
+    );
+  }, [groupsForCreate]);
+  const canCreate = !!showNewCategory && createGroupId != null;
+
+  // The shared Autocomplete types onSelect as a single|multi union; create is
+  // only wired for the single-select register, so cast to the single form.
+  const onSelectSingle = props.onSelect as
+    | ((id: string, value: string) => void)
+    | undefined;
+
+  const handleSelect = async (id: string, rawInputValue: string) => {
+    if (id === 'new') {
+      const name = rawInputValue.trim();
+      if (createGroupId == null || !name) {
+        return;
+      }
+      const newId = (await send('category-create', {
+        name,
+        groupId: createGroupId,
+        isIncome: false,
+      })) as string;
+      await refetch();
+      onSelectSingle?.(newId, rawInputValue);
+    } else {
+      onSelectSingle?.(id, rawInputValue);
+    }
+  };
+
+  const filterSuggestions = (
+    suggestions: CategoryAutocompleteItem[],
+    value: string,
+  ) => {
+    const filtered = filterCategorySuggestions(suggestions, value);
+    if (!canCreate || !value.trim()) {
+      return filtered;
+    }
+    // Don't offer to create a category whose name already exists.
+    const exists = suggestions.some(
+      s =>
+        s.id !== 'split' &&
+        s.id !== 'new' &&
+        getNormalisedString(s.name) === getNormalisedString(value),
+    );
+    if (exists) {
+      return filtered;
+    }
+    // Carry the typed name on the item so the button can label itself without
+    // a separate renderItems arg (which would pin the single/multi union).
+    const newItem = { id: 'new', name: value } as CategoryAutocompleteItem;
+    // Keep the split option first (if present), then the create option.
+    if (filtered.length > 0 && filtered[0].id === 'split') {
+      return [filtered[0], newItem, ...filtered.slice(1)];
+    }
+    return [newItem, ...filtered];
+  };
+
   const categorySuggestions: CategoryAutocompleteItem[] = useMemo(() => {
     const allSuggestions = (categoryGroups || defaultCategoryGroups).reduce(
       (list, group) =>
@@ -249,6 +353,14 @@ export function CategoryAutocomplete({
     showHiddenCategories,
   ]);
 
+  // Only the single-select register enables create; wrap its onSelect to turn
+  // the "new" sentinel into a real category. Cast back to the forwarded props
+  // type so the spread stays identical to a plain {...props} (the shared
+  // Autocomplete's single|multi prop union only resolves through that spread).
+  const passthroughProps = (
+    canCreate ? { ...props, onSelect: handleSelect } : props
+  ) as unknown as typeof props;
+
   return (
     <Autocomplete
       strict
@@ -256,15 +368,17 @@ export function CategoryAutocomplete({
       embedded={embedded}
       closeOnBlur={closeOnBlur}
       getHighlightedIndex={suggestions => {
-        if (suggestions.length === 0) {
-          return null;
-        } else if (suggestions[0].id === 'split') {
-          // Highlight the first category since the split option is at index 0.
-          return suggestions.length > 1 ? 1 : null;
+        const firstReal = suggestions.findIndex(
+          s => s.id !== 'split' && s.id !== 'new',
+        );
+        if (firstReal !== -1) {
+          return firstReal;
         }
-        return 0;
+        // No real matches: highlight the create option so Enter creates it.
+        const newIdx = suggestions.findIndex(s => s.id === 'new');
+        return newIdx !== -1 ? newIdx : null;
       }}
-      filterSuggestions={filterCategorySuggestions}
+      filterSuggestions={filterSuggestions}
       suggestions={categorySuggestions}
       renderItems={(items, getItemProps, highlightedIndex) => (
         <CategoryList
@@ -279,7 +393,7 @@ export function CategoryAutocomplete({
           showBalances={showBalances}
         />
       )}
-      {...props}
+      {...passthroughProps}
     />
   );
 }
@@ -365,6 +479,53 @@ function defaultRenderSplitTransactionButton(
   props: SplitTransactionButtonProps,
 ): ReactElement<typeof SplitTransactionButton> {
   return <SplitTransactionButton {...props} />;
+}
+
+type CreateCategoryButtonProps = ComponentPropsWithoutRef<typeof View> & {
+  categoryName: string;
+  highlighted?: boolean;
+  embedded?: boolean;
+  style?: CSSProperties;
+};
+
+function CreateCategoryButton({
+  categoryName,
+  highlighted,
+  embedded,
+  style,
+  ...props
+}: CreateCategoryButtonProps) {
+  return (
+    <View
+      // See the comment on SplitTransactionButton for why role="button".
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="button"
+      style={{
+        backgroundColor: highlighted
+          ? theme.menuAutoCompleteBackgroundHover
+          : 'transparent',
+        borderRadius: embedded ? 4 : 0,
+        flexShrink: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        fontSize: 11,
+        fontWeight: 500,
+        color: theme.noticeTextMenu,
+        padding: '6px 8px',
+        ':active': {
+          backgroundColor: 'rgba(100, 100, 100, .25)',
+        },
+        ...style,
+      }}
+      data-testid="create-category-button"
+      {...props}
+    >
+      <Text style={{ lineHeight: 0 }}>
+        <SvgAdd width={8} height={8} style={{ marginRight: 5 }} />
+      </Text>
+      <Trans>Create category "{categoryName}"</Trans>
+    </View>
+  );
 }
 
 type CategoryItemProps = {
