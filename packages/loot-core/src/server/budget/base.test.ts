@@ -3,7 +3,7 @@ import * as sheet from '#server/sheet';
 // @ts-strict-ignore
 import * as monthUtils from '#shared/months';
 
-import { createAllBudgets } from './base';
+import { createAllBudgets, rebuildBudget } from './base';
 
 beforeEach(() => {
   return global.emptyDatabase()();
@@ -466,6 +466,59 @@ describe('Base budget', () => {
     expect(sheet.getCellValue(feb, `sum-amount-${foodId}`)).toBe(-2500);
     expect(sheet.getCellValue(jan, 'total-spent')).toBe(-91500);
     expect(sheet.getCellValue(feb, 'total-spent')).toBe(-2500);
+  });
+
+  // The Lunch Money exclude flags only take effect through a structural
+  // rebuild — recomputeAll keeps the old group-sum/total dependencies, so the
+  // excluded category keeps counting until the graph is rebuilt.
+  it.each([
+    ['exclude_from_budget'],
+    ['exclude_from_totals'],
+  ])('drops a %s category from group + month totals after rebuild', async flag => {
+    await sheet.loadSpreadsheet(db);
+    sheet.get().meta().budgetType = 'envelope';
+
+    await db.insertCategoryGroup({ id: 'group1', name: 'Expenses' });
+    await db.insertCategoryGroup({ id: 'group2', name: 'Income', is_income: 1 });
+    const keepId = await db.insertCategory({ name: 'Keep', cat_group: 'group1' });
+    const dropId = await db.insertCategory({ name: 'Drop', cat_group: 'group1' });
+
+    await createAllBudgets();
+    const sheetName = monthUtils.sheetForMonth('2017-01');
+
+    await db.insertAccount({ id: 'account1', name: 'Account 1' });
+    await db.insertTransaction({
+      date: '2017-01-15',
+      amount: -1000,
+      account: 'account1',
+      category: keepId,
+    });
+    await db.insertTransaction({
+      date: '2017-01-15',
+      amount: -2000,
+      account: 'account1',
+      category: dropId,
+    });
+    await sheet.waitOnSpreadsheet();
+
+    // Both counted initially.
+    expect(sheet.getCellValue(sheetName, 'group-sum-amount-group1')).toBe(-3000);
+    expect(sheet.getCellValue(sheetName, 'total-spent')).toBe(-3000);
+
+    await db.updateCategory({
+      id: dropId,
+      name: 'Drop',
+      cat_group: 'group1',
+      is_income: 0,
+      hidden: 0,
+      [flag]: 1,
+    });
+    await rebuildBudget();
+    await sheet.waitOnSpreadsheet();
+
+    // The excluded category no longer feeds the group or month total.
+    expect(sheet.getCellValue(sheetName, 'group-sum-amount-group1')).toBe(-1000);
+    expect(sheet.getCellValue(sheetName, 'total-spent')).toBe(-1000);
   });
 
   it('Excludes off-budget account spending when seeding sum-amount', async () => {

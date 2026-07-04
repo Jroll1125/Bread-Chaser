@@ -411,16 +411,17 @@ export async function createAllBudgets() {
   return { start, end };
 }
 
-export async function setType(type) {
+// Tear down every budget-month cell and recreate the whole structure from the
+// current category/group state. Budgeted amounts survive because they live in
+// the DB (reloaded by loadUserBudgets), not in these cells. This is the only
+// way a change to the budget *structure* — e.g. a category becoming
+// excluded_from_budget/_totals — actually restructures the group-sum and month
+// total dependency graph; recomputeAll alone only refreshes values against the
+// existing (stale) dependencies.
+async function rebuildAllBudgetCells() {
   const meta = sheet.get().meta();
-  if (type === meta.budgetType) {
-    return;
-  }
-
-  meta.budgetType = type;
   meta.createdMonths = new Set();
 
-  // Go through and force all the cells to be recomputed
   const nodes = sheet.get().getNodes();
   db.transaction(() => {
     for (const name of nodes.keys()) {
@@ -437,4 +438,18 @@ export async function setType(type) {
   sheet.get().endCacheBarrier();
 
   return bounds;
+}
+
+export async function rebuildBudget() {
+  return rebuildAllBudgetCells();
+}
+
+export async function setType(type) {
+  const meta = sheet.get().meta();
+  if (type === meta.budgetType) {
+    return;
+  }
+
+  meta.budgetType = type;
+  return rebuildAllBudgetCells();
 }

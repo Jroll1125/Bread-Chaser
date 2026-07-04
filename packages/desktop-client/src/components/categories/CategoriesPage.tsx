@@ -125,9 +125,12 @@ export function CategoriesPage() {
     try {
       await fn();
       if (rebuildBudget) {
-        // Budget cells are created per-category at build time; behavior
-        // flags only take hold after a rebuild.
-        await send('reset-budget-cache');
+        // Structure changes (new/removed category, or the exclude-from-budget/
+        // -totals flags) must rebuild the budget dependency graph, not just
+        // recompute values — otherwise group/month totals keep summing the old
+        // set of categories. reset-budget-cache only recomputes, so use the
+        // structural rebuild here.
+        await send('budget-rebuild-structure');
       }
       await refetch();
     } catch (err) {

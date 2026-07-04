@@ -47,6 +47,7 @@ export type BudgetHandlers = {
   'budget/reset-income-carryover': typeof actions.resetIncomeCarryover;
   'get-categories': typeof getCategories;
   'get-budget-bounds': typeof getBudgetBounds;
+  'budget-rebuild-structure': typeof budget.rebuildBudget;
   'envelope-budget-month': typeof envelopeBudgetMonth;
   'tracking-budget-month': typeof trackingBudgetMonth;
   'category-create': typeof createCategory;
@@ -148,6 +149,7 @@ app.method('envelope-budget-month', envelopeBudgetMonth);
 app.method('tracking-budget-month', trackingBudgetMonth);
 app.method('category-create', mutator(undoable(createCategory)));
 app.method('category-update', mutator(undoable(updateCategory)));
+app.method('budget-rebuild-structure', mutator(budget.rebuildBudget));
 app.method('category-move', mutator(undoable(moveCategory)));
 app.method('categories-sort', mutator(undoable(sortCategories)));
 app.method('category-delete', mutator(undoable(deleteCategory)));
